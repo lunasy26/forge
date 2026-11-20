@@ -4,7 +4,14 @@ import('../lib/cli.mjs')
   .then((m) => {
     process.exitCode = m.main(process.argv.slice(2));
   })
-  .catch((err) => {
-    process.stderr.write(`forge: внутренняя ошибка: ${err?.stack || err}\n`);
+  .catch(async (err) => {
+    let msg = `internal error: ${err?.stack || err}`;
+    try {
+      // localized once the language is known; falls back to English when cli.mjs itself failed to load
+      msg = (await import('../lib/cli.mjs')).internalErrorMessage(err);
+    } catch {
+      // keep the English fallback
+    }
+    process.stderr.write(`forge: ${msg}\n`);
     process.exitCode = 3;
   });

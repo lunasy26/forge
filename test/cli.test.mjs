@@ -2,7 +2,10 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { chmodSync, existsSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { git, gitRepo, runCli, tempDir, write, writeProfile } from './helpers.mjs';
+import { git, gitRepo, runCli as run, tempDir, write, writeProfile } from './helpers.mjs';
+
+// These assertions are on the Russian texts; English ones live in cli-en.test.mjs.
+const runCli = (args, opts = {}) => run(args, { ...opts, env: { FORGE_LANG: 'ru', ...opts.env } });
 
 test('init: preview without writing, then write profile, schema and git excludes', () => {
   const dir = gitRepo();
