@@ -311,6 +311,17 @@ test('findAgentFiles in git: tracked and untracked, honours .gitignore, sorted',
   assert.deepEqual(findAgentFiles(dir), { files: ['AGENTS.md', 'a/CLAUDE.md', 'z/AGENTS.md'], complete: true });
 });
 
+test('findAgentFiles in git: files under .forge/ are skipped even when not ignored', () => {
+  const dir = gitRepo();
+  write(dir, 'AGENTS.md', 'r');
+  write(dir, 'CLAUDE.md', LINK);
+  write(dir, '.forge/work/x/AGENTS.md', 'backup');
+  write(dir, '.forge/work/x/CLAUDE.md', '# backup\nold text\n');
+  write(dir, 'pkg/.forge/work/y/AGENTS.md', 'nested backup');
+  assert.deepEqual(findAgentFiles(dir).files, ['AGENTS.md', 'CLAUDE.md']);
+  assert.deepEqual(checkDocs(dir, defaultProfile()), []);
+});
+
 test('findAgentFiles in git: files deleted from the worktree are not reported', () => {
   const dir = gitRepo();
   write(dir, 'AGENTS.md', 'r');

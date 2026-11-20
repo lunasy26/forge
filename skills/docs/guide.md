@@ -15,7 +15,10 @@ Start with the root file only. Add `X/AGENTS.md` when one of these holds **and**
 
 - `X` has its own stack and manifest with its own commands: `package.json`, `*.csproj`/`*.sln`, `pyproject.toml`, `go.mod`, `Cargo.toml`, `Package.swift`, `build.gradle`;
 - `X` is a package or app of a monorepo (`packages/*`, `apps/*`);
+- `X` is a separate git repository inside the project folder (see below);
 - `X` is a subsystem with its own rules — a protocol, migrations, generated code — that would take more than ~30 lines of the root.
+
+A subfolder that is its own git repository (a plugin or site checked out inside a larger folder) is always its own area and gets its own file, even when it has less than ~20 lines to say. Its `AGENTS.md` must stand on its own — agents that stop at that repository's root never see the parent's files — so repeat there the few shared rules it needs. It is committed in that repository, not the parent's; when the parent is a git repository too, `forge docs` run there doesn't see into it — run it inside as well.
 
 Not one file per directory: a directory whose facts fit in one line of the directory map gets that line and nothing more. Every extra file is one more place to forget to update.
 
@@ -40,7 +43,7 @@ Optional when the project has them: changelog rules, where design decisions live
 
 - Title `# <Project> — <area>`, then one line: the root `AGENTS.md` holds the shared rules, this file adds the `<area>` specifics.
 - Sections as the area needs: Stack, Commands (say which directory to run them from), Layout, Architecture, Conventions, Testing, Gotchas.
-- Don't repeat the root. One fact, one place.
+- Don't repeat the root. One fact, one place. The exception is a separate git repository (above): its file states what it needs from the parent's rules, because it is read without them.
 - Next to it, a `CLAUDE.md` containing `@AGENTS.md` — `forge docs --fix` creates it.
 
 ## Routing table
@@ -68,7 +71,10 @@ Optional when the project has them: changelog rules, where design decisions live
 
 ## Size
 
-Aim for at most ~150 lines per file; the hard limit is `docs.max_lines` in the profile (default 200, `too-long` above it). Every line is loaded into every session, and a long file dilutes the rules that matter. When a file grows past the target: first cut what the list above covers, then move area-specific sections to nested files, then move long reference material (deployment, configuration keys) to `docs/` with a row in the routing table.
+Aim for at most ~150 lines per file; the hard limit is `docs.max_lines` in the profile (default 200, `too-long` above it). Every line is loaded into every session, and a long file dilutes the rules that matter. When a file grows past the target:
+
+- **Text you write:** first cut what the list above covers, then move area-specific sections to nested files, then move long reference material (deployment, configuration keys) to `docs/` with a row in the routing table.
+- **Text the user already wrote:** move it first (to a nested file, or to `docs/` with a routing row). Cut it only with the user's explicit agreement to those exact lines, even when it matches the list above — it may hold a rule nobody wrote down anywhere else.
 
 ## Language
 
