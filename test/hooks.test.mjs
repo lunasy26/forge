@@ -62,6 +62,41 @@ test('session-start: mentions ignored routing overrides, silent for a valid prof
   assert.doesNotMatch(ok, /routing/);
 });
 
+test('session-start: one docs line for a missing or unlinked AGENTS.md, only with a profile', () => {
+  const ctxOf = (dir, opts = {}) =>
+    runHookScript('session-start', { cwd: dir, source: 'startup' }, { projectDir: dir, ...opts }).json.hookSpecificOutput
+      .additionalContext;
+
+  const missing = gitRepo('feature/x');
+  writeProfile(missing, {});
+  const m = ctxOf(missing);
+  assert.match(m, /нет AGENTS\.md — \/forge:docs/);
+  assert.ok(m.length <= 600, `length ${m.length}`);
+
+  const unlinked = gitRepo('feature/x');
+  writeProfile(unlinked, {});
+  write(unlinked, 'AGENTS.md', '# Project\n');
+  write(unlinked, 'CLAUDE.md', '# Notes\n');
+  const u = ctxOf(unlinked);
+  assert.match(u, /CLAUDE\.md не подключает AGENTS\.md — forge docs/);
+  assert.doesNotMatch(u, /нет AGENTS\.md/);
+
+  const ok = gitRepo('feature/x');
+  writeProfile(ok, {});
+  write(ok, 'AGENTS.md', '# Project\n');
+  write(ok, 'CLAUDE.md', '@AGENTS.md\n');
+  assert.doesNotMatch(ctxOf(ok), /AGENTS\.md/);
+
+  const noProfile = gitRepo('feature/x');
+  assert.doesNotMatch(ctxOf(noProfile), /AGENTS\.md/);
+
+  const configDir = emptyConfigDir();
+  write(configDir, 'settings.json', { enabledPlugins: { 'superpowers@claude-plugins-official': true } });
+  const both = ctxOf(missing, { configDir });
+  assert.ok(both.indexOf('AGENTS.md') < both.indexOf('Superpowers'), 'docs line comes before the Superpowers line');
+  assert.ok(both.length <= 600, `length ${both.length}`);
+});
+
 test('pre-bash: deny JSON for a protected push, silence for ordinary commands', () => {
   const repo = gitRepo('main');
   const deny = runHookScript('pre-bash', { cwd: repo, tool_name: 'Bash', tool_input: { command: 'git push' } }, { projectDir: repo });
