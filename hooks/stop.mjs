@@ -4,11 +4,28 @@
 import { verifyAndRecord } from '../lib/cli.mjs';
 import { docsReminder } from '../lib/docs.mjs';
 import { editsSize, filesSince, maybeRotate } from '../lib/edits.mjs';
+import { defineCatalog, detectLang, lastUserText, t } from '../lib/i18n.mjs';
+import { initLang } from '../lib/lang.mjs';
 import { loadProfile } from '../lib/profile.mjs';
 import { releaseMemory, releaseReminder, rememberRelease } from '../lib/release.mjs';
 import { loadState, updateState } from '../lib/state.mjs';
 import { logError, runHook } from '../lib/util.mjs';
 import { failureReport } from '../lib/verify.mjs';
+
+const MSG = defineCatalog({
+  en: {
+    lastFailed: 'forge: the last check failed ({summary}).',
+    gaveUp: 'forge: the check has failed {streak} times in a row, so auto-verify is letting the session go. Step: {step}. Run forge verify to see the error.',
+    escalate: "\n\nThis is failure #{streak} in a row. Don't patch blindly: hand the task to the debugger role (forge route debugger) together with this log.",
+    blocked: "forge: the check before finishing failed.\n{report}\n\nFix it and finish again. If it cannot be fixed, tell the user honestly that the check fails.{escalate}",
+  },
+  ru: {
+    lastFailed: 'forge: последняя проверка не прошла ({summary}).',
+    gaveUp: 'forge: проверка падает {streak} раз(а) подряд, автопроверка отпустила сессию. Шаг: {step}. Запусти forge verify, чтобы увидеть ошибку.',
+    escalate: '\n\nЭто {streak}-е падение подряд. Не латай вслепую: передай задачу роли debugger (forge route debugger) вместе с этим логом.',
+    blocked: 'forge: проверка перед завершением не прошла.\n{report}\n\nИсправь и заверши работу снова. Если исправить нельзя — честно сообщи пользователю, что проверка падает.{escalate}',
+  },
+});
 
 /** After this many consecutive failures the hook stops blocking and tells the user instead. */
 export const GIVE_UP_AFTER = 3;
@@ -29,7 +46,7 @@ function verifyOnStop(input, root, profile) {
       updateState(root, (s) => {
         s.verify.notified = true;
       });
-      return { systemMessage: `forge: последняя проверка не прошла (${state.verify.summary}).` };
+      return { systemMessage: t(MSG, 'lastFailed', { summary: state.verify.summary }) };
     }
     return null;
   }
@@ -43,17 +60,14 @@ function verifyOnStop(input, root, profile) {
     });
     return {
       gaveUp: true,
-      systemMessage: `forge: проверка падает ${streak} раз(а) подряд, автопроверка отпустила сессию. Шаг: ${result.failed.step}. Запусти forge verify, чтобы увидеть ошибку.`,
+      systemMessage: t(MSG, 'gaveUp', { streak, step: result.failed.step }),
     };
   }
 
-  const escalate =
-    streak >= 2
-      ? `\n\nЭто ${streak}-е падение подряд. Не латай вслепую: передай задачу роли debugger (forge route debugger) вместе с этим логом.`
-      : '';
+  const escalate = streak >= 2 ? t(MSG, 'escalate', { streak }) : '';
   return {
     decision: 'block',
-    reason: `forge: проверка перед завершением не прошла.\n${failureReport(result)}\n\nИсправь и заверши работу снова. Если исправить нельзя — честно сообщи пользователю, что проверка падает.${escalate}`,
+    reason: t(MSG, 'blocked', { report: failureReport(result), escalate }),
   };
 }
 
@@ -142,13 +156,29 @@ function dropWindowCursor(root) {
   }
 }
 
+/** Remember the language of the user's latest message for the CLI (state.lang). Cheap; never throws. */
+function rememberLang(root, input) {
+  try {
+    const detected = detectLang(lastUserText(input.transcript_path));
+    if (detected && detected !== loadState(root).lang) {
+      updateState(root, (s) => {
+        s.lang = detected;
+      });
+    }
+  } catch (err) {
+    logError(root, 'stop:lang', err);
+  }
+}
+
 runHook('stop', async (input, root) => {
+  initLang(root, input);
   const { exists, profile } = loadProfile(root);
   if (!exists) return null;
+  rememberLang(root, input);
 
   // Subagents or workflows still running may keep editing: verify when they are done.
   const busy = (input.background_tasks || []).some(
-    (t) => ['subagent', 'workflow'].includes(t.type) && !['completed', 'failed', 'killed', 'stopped'].includes(t.status),
+    (task) => ['subagent', 'workflow'].includes(task.type) && !['completed', 'failed', 'killed', 'stopped'].includes(task.status),
   );
   if (busy) return null;
 
