@@ -1,11 +1,14 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { setLang } from '../lib/i18n.mjs';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { checkTable, compareStrength, effectiveTable, loadRouting, mergeTable, parseEntry, resolveRoute } from '../lib/route.mjs';
 import { DEFAULT_PROTECTED_FILES, DEFAULT_RELEASE_IGNORE, defaultProfile, loadProfile } from '../lib/profile.mjs';
 import { matchList } from '../lib/glob.mjs';
 import { PLUGIN_ROOT, tempDir, write, writeProfile } from './helpers.mjs';
+
+setLang('ru'); // assertions below check the Russian texts
 
 const routing = loadRouting(PLUGIN_ROOT);
 

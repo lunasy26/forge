@@ -1,10 +1,13 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
+import { setLang } from '../lib/i18n.mjs';
 import { buildCommand, runSteps, summarize } from '../lib/verify.mjs';
 import { detectProfile, detectRelease } from '../lib/detect.mjs';
 import { defaultProfile } from '../lib/profile.mjs';
 import { trimOutput } from '../lib/util.mjs';
 import { git, gitRepo, tempDir, write } from './helpers.mjs';
+
+setLang('ru'); // assertions below check the Russian texts
 
 test('buildCommand: {files} substitution, quoting and extension filter', () => {
   assert.equal(buildCommand('npm test', []), 'npm test');

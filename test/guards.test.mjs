@@ -4,6 +4,9 @@ import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { checkBash, checkFile, branchMatches } from '../lib/guards.mjs';
 import { DEFAULT_PROTECTED_FILES } from '../lib/profile.mjs';
+import { setLang } from '../lib/i18n.mjs';
+
+setLang('ru'); // the Russian texts are asserted below; English ones live in guards-en.test.mjs
 
 // Guards only reason about paths, so a fake root outside the temp dir keeps "outside the project" meaningful.
 const root = '/work/project';
