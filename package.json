@@ -1,6 +1,6 @@
 {
   "name": "forge-claude-plugin",
-  "version": "0.1.0",
+  "version": "0.2.0",
   "private": true,
   "type": "module",
   "description": "forge — a Claude Code plugin: guards, auto-verification, per-project profile and model routing for role subagents",
@@ -8,6 +8,6 @@
     "node": ">=20"
   },
   "scripts": {
-    "test": "node --test \"test/*.test.mjs\""
+    "test": "node --test test/*.test.mjs"
   }
 }
