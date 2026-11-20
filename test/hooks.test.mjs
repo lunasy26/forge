@@ -301,6 +301,47 @@ test('stop docs: the one-time "check failed" message and the reminder share one 
   assert.match(r.json.reason, /package\.json \(scripts\)/);
 });
 
+test('stop docs: no reminder when verification gives up; it comes after a later passing check', () => {
+  const dir = docsProject({ commands: { test: 'node check.mjs' }, verify: { steps: ['test'], on_stop: 'full' } });
+  write(dir, 'check.mjs', "import { readFileSync } from 'node:fs';\nif (readFileSync('status.txt','utf8').trim() !== 'ok') { console.error('check failed'); process.exit(1); }\n");
+  write(dir, 'status.txt', 'fail');
+  edit(dir, 'package.json', { ...PKG, scripts: { x: 'y' } });
+  assert.equal(stop(dir).json.decision, 'block');
+  edit(dir, 'a.txt', '2');
+  assert.equal(stop(dir, { stop_hook_active: true }).json.decision, 'block');
+  edit(dir, 'a.txt', '3');
+  const docsOffset = state(dir).docs.offset;
+  const gaveUp = stop(dir, { stop_hook_active: true });
+  assert.match(gaveUp.json.systemMessage, /3 раз\(а\) подряд/);
+  assert.equal(gaveUp.json.decision, undefined, 'giving up must not block');
+  assert.equal(gaveUp.json.reason, undefined);
+  assert.equal(gaveUp.json.gaveUp, undefined, 'internal marker is not printed');
+  assert.equal(state(dir).docs.offset, docsOffset, 'docs cursor stays put');
+
+  edit(dir, 'status.txt', 'ok');
+  const r = stop(dir);
+  assert.equal(r.json.decision, 'block');
+  assert.match(r.json.reason, /package\.json \(scripts\)/);
+});
+
+test('stop docs: a caught-up log past 256 KiB is rotated and all three cursors reset', () => {
+  const dir = docsProject();
+  const log = join(dir, '.forge', 'edits.jsonl');
+  writeFileSync(log, `${JSON.stringify({ t: 0, f: 'gone.txt' })}\n`.repeat(12000));
+  const size = readFileSync(log).length;
+  assert.ok(size >= 256 * 1024);
+  const s = state(dir);
+  s.verify = { ok: true, summary: 'ok', edits_offset: size, notified: false };
+  s.lint_offset = size;
+  s.docs.offset = size;
+  writeFileSync(join(dir, '.forge', 'state.json'), JSON.stringify(s));
+
+  assert.equal(stop(dir).stdout, '');
+  assert.equal(readFileSync(log).length, 0, 'log truncated');
+  const after = state(dir);
+  assert.deepEqual([after.verify.edits_offset, after.lint_offset, after.docs.offset], [0, 0, 0]);
+});
+
 test('stop docs: remind false and projects without AGENTS.md stay silent', () => {
   const off = docsProject({ docs: { remind: false } });
   edit(off, 'package.json', { ...PKG, scripts: { x: 'y' } });

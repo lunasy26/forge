@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { git, gitRepo, runCli, write, writeProfile } from './helpers.mjs';
 
@@ -64,6 +64,34 @@ test('verify: exit code and summary; doctor reports problems without crashing', 
   assert.equal(d.code, 0);
   assert.match(d.stdout, /nonexistent-linter-xyz/);
   assert.match(d.stdout, /не исключены из git/);
+});
+
+/** A passing project whose edit log is past the rotation limit, with the given state cursors. */
+function bigLogProject(cursors) {
+  const dir = gitRepo();
+  writeProfile(dir, { commands: { test: 'node -e ""' }, verify: { steps: ['test'] } });
+  const log = write(dir, '.forge/edits.jsonl', `${JSON.stringify({ t: 0, f: 'gone.txt' })}\n`.repeat(12000));
+  const size = readFileSync(log).length;
+  write(dir, '.forge/state.json', { version: 1, lint_offset: size, ...cursors(size) });
+  return { dir, log, size };
+}
+const readState = (dir) => JSON.parse(readFileSync(join(dir, '.forge', 'state.json'), 'utf8'));
+
+test('verify: does not rotate the edit log while the docs cursor lags behind', () => {
+  const { dir, log, size } = bigLogProject((size) => ({ docs: { offset: size - 10 } }));
+  assert.equal(runCli(['verify'], { cwd: dir }).code, 0);
+  assert.equal(readFileSync(log).length, size, 'log kept');
+  const s = readState(dir);
+  assert.deepEqual([s.verify.edits_offset, s.lint_offset, s.docs.offset], [size, size, size - 10]);
+});
+
+test('verify: an absent docs cursor counts as caught up and the log rotates', () => {
+  const { dir, log } = bigLogProject(() => ({}));
+  assert.equal(runCli(['verify'], { cwd: dir }).code, 0);
+  assert.equal(readFileSync(log).length, 0, 'log truncated');
+  const s = readState(dir);
+  assert.deepEqual([s.verify.edits_offset, s.lint_offset], [0, 0]);
+  assert.equal(s.docs, undefined, 'absent cursor stays absent');
 });
 
 test('docs: missing AGENTS.md is an error with exit 1, json is parseable, unknown flag is a usage error', () => {

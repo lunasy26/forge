@@ -11,7 +11,10 @@ import { failureReport } from '../lib/verify.mjs';
 /** After this many consecutive failures the hook stops blocking and tells the user instead. */
 export const GIVE_UP_AFTER = 3;
 
-/** Verification on Stop: null, { systemMessage } or { decision: 'block', reason }. */
+/**
+ * Verification on Stop: null, { systemMessage }, { decision: 'block', reason } or, when it gives up after
+ * GIVE_UP_AFTER failures, { systemMessage, gaveUp: true } (the marker is internal and never printed).
+ */
 function verifyOnStop(input, root, profile) {
   const state = loadState(root);
   const size = editsSize(root);
@@ -37,6 +40,7 @@ function verifyOnStop(input, root, profile) {
       s.verify.notified = true;
     });
     return {
+      gaveUp: true,
       systemMessage: `forge: проверка падает ${streak} раз(а) подряд, автопроверка отпустила сессию. Шаг: ${result.failed.step}. Запусти forge verify, чтобы увидеть ошибку.`,
     };
   }
@@ -87,6 +91,8 @@ runHook('stop', async (input, root) => {
   if (profile.verify.on_stop !== 'off' && profile.verify.steps.length) {
     verified = verifyOnStop(input, root, profile);
     if (verified?.decision === 'block') return verified; // a failing check wins; the docs cursor stays
+    // Giving up must release the session: no docs block now, the cursor stays for a later passing check.
+    if (verified?.gaveUp) return { systemMessage: verified.systemMessage };
   }
 
   const reason = profile.docs.remind !== false ? docsOnStop(root, profile) : null;
