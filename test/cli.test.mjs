@@ -65,3 +65,54 @@ test('verify: exit code and summary; doctor reports problems without crashing', 
   assert.match(d.stdout, /nonexistent-linter-xyz/);
   assert.match(d.stdout, /не исключены из git/);
 });
+
+test('docs: missing AGENTS.md is an error with exit 1, json is parseable, unknown flag is a usage error', () => {
+  const dir = gitRepo();
+  const r = runCli(['docs'], { cwd: dir });
+  assert.equal(r.code, 1);
+  assert.match(r.stdout, /✗ .*missing-root/);
+  const json = runCli(['docs', '--json'], { cwd: dir });
+  assert.equal(json.code, 1);
+  const issues = JSON.parse(json.stdout);
+  assert.ok(issues.some((i) => i.code === 'missing-root'));
+  assert.equal(runCli(['docs', '--bogus'], { cwd: dir }).code, 2);
+});
+
+test('docs: --fix creates the missing CLAUDE.md shim and the re-check passes', () => {
+  const dir = gitRepo();
+  write(dir, 'AGENTS.md', '# Проект\n');
+  assert.equal(runCli(['docs'], { cwd: dir }).code, 1);
+  const fixed = runCli(['docs', '--fix'], { cwd: dir });
+  assert.equal(fixed.code, 0, fixed.stdout + fixed.stderr);
+  assert.match(fixed.stdout, /создан CLAUDE\.md/);
+  assert.match(fixed.stdout, /✓/);
+  assert.equal(readFileSync(join(dir, 'CLAUDE.md'), 'utf8'), '@AGENTS.md\n');
+  assert.equal(runCli(['docs'], { cwd: dir }).code, 0);
+});
+
+test('docs: clean project prints a single ok line; warnings do not fail', () => {
+  const dir = gitRepo();
+  write(dir, 'AGENTS.md', '# Проект\n');
+  write(dir, 'CLAUDE.md', '@AGENTS.md\n');
+  const ok = runCli(['docs'], { cwd: dir });
+  assert.equal(ok.code, 0);
+  assert.equal(ok.stdout.trim(), '✓ Агентские файлы в порядке');
+  assert.equal(runCli(['docs', '--json'], { cwd: dir }).stdout.trim(), '[]');
+  write(dir, 'AGENTS.md', '# Проект\n[x](nope.md)\n');
+  const warn = runCli(['docs'], { cwd: dir });
+  assert.equal(warn.code, 0);
+  assert.match(warn.stdout, /! .*broken-link/);
+});
+
+test('doctor: reports the agent files line both when clean and when broken', () => {
+  const dir = gitRepo();
+  writeProfile(dir, {});
+  const bad = runCli(['doctor'], { cwd: dir });
+  assert.equal(bad.code, 0);
+  assert.match(bad.stdout, /✗ Агентские файлы: 1 замечаний — forge docs/);
+  write(dir, 'AGENTS.md', '# Проект\n');
+  write(dir, 'CLAUDE.md', '@AGENTS.md\n');
+  assert.match(runCli(['doctor'], { cwd: dir }).stdout, /✓ Агентские файлы в порядке/);
+  write(dir, 'AGENTS.md', '# Проект\n[x](nope.md)\n');
+  assert.match(runCli(['doctor'], { cwd: dir }).stdout, /! Агентские файлы: 1 замечаний — forge docs/);
+});
