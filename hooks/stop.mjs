@@ -1,9 +1,11 @@
 // Stop: if code changed since the last verification, verify before letting the turn end;
-// then, once per window of edits, remind to re-check the agent files if commands or structure changed.
+// then, once per window of edits, remind to re-check the agent files if commands or structure changed
+// and to fill [Unreleased] of the changelog if code changed while it is empty — one block for both.
 import { verifyAndRecord } from '../lib/cli.mjs';
 import { docsReminder } from '../lib/docs.mjs';
 import { editsSize, filesSince, maybeRotate } from '../lib/edits.mjs';
 import { loadProfile } from '../lib/profile.mjs';
+import { releaseMemory, releaseReminder, rememberRelease } from '../lib/release.mjs';
 import { loadState, updateState } from '../lib/state.mjs';
 import { logError, runHook } from '../lib/util.mjs';
 import { failureReport } from '../lib/verify.mjs';
@@ -58,11 +60,40 @@ function verifyOnStop(input, root, profile) {
 const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
 
 /**
- * Agent-docs reminder over the edits since state.docs.offset; the cursor always moves to the end of the log.
- * No cursor yet (first stop after an update) → only set it. A cursor past the end (log truncated) or negative
- * → read from 0. What was reminded is remembered in state.docs.reminded (see docsReminder).
+ * The agent-docs part over the shared window: the reason or null; docs memory lives in state.docs.reminded
+ * (see docsReminder) and is saved even when nothing is reminded (forgotten entries).
  */
-function docsOnStop(root, profile) {
+function docsPart(root, profile, files, memory) {
+  const { reason, reminded } = docsReminder(root, profile, files, memory);
+  const keep = Object.keys(reminded.scripts).length || reminded.dirs.length ? reminded : undefined;
+  if (JSON.stringify(keep) !== JSON.stringify(memory)) {
+    updateState(root, (s) => {
+      if (!isObject(s.docs)) s.docs = {};
+      if (keep) s.docs.reminded = keep;
+      else delete s.docs.reminded;
+    });
+  }
+  return reason;
+}
+
+/** The release part over the shared window: the reason or null; the fired key goes to state.release.reminded. */
+function releasePart(root, profile, files, state) {
+  const hit = releaseReminder(root, profile, files, state);
+  if (!hit) return null;
+  updateState(root, (s) => {
+    s.release = { ...(isObject(s.release) ? s.release : {}), reminded: rememberRelease(releaseMemory(s), hit.remember) };
+  });
+  return hit.reason;
+}
+
+/**
+ * Reminders over one shared window of edits: the edits since state.docs.offset (the one window cursor, kept
+ * under its historical key so verifyAndRecord rotates it too). The cursor always moves to the end of the log.
+ * No cursor yet (first stop after an update) → only set it. A cursor past the end (log truncated) or negative
+ * → read from 0. The agent-docs and release reminders read the same files; each one's error is logged and
+ * does not cost the other. Returns the joined reason or null.
+ */
+function remindersOnStop(root, profile, { docs, release }) {
   const state = loadState(root);
   const size = editsSize(root);
   const prev = isObject(state.docs) ? state.docs : {};
@@ -79,19 +110,26 @@ function docsOnStop(root, profile) {
     });
   }
   if (!files.length) return null;
-  const { reason, reminded } = docsReminder(root, profile, files, prev.reminded);
-  const keep = Object.keys(reminded.scripts).length || reminded.dirs.length ? reminded : undefined;
-  if (JSON.stringify(keep) !== JSON.stringify(prev.reminded)) {
-    updateState(root, (s) => {
-      if (keep) s.docs.reminded = keep;
-      else delete s.docs.reminded;
-    });
+  const reasons = [];
+  if (docs) {
+    try {
+      reasons.push(docsPart(root, profile, files, prev.reminded));
+    } catch (err) {
+      logError(root, 'stop:docs', err);
+    }
   }
-  return reason;
+  if (release) {
+    try {
+      reasons.push(releasePart(root, profile, files, state));
+    } catch (err) {
+      logError(root, 'stop:release', err);
+    }
+  }
+  return reasons.filter(Boolean).join('\n\n') || null;
 }
 
-/** docs.remind is off: drop the docs cursor so a stale one never holds the log's rotation. */
-function dropDocsCursor(root) {
+/** Both reminders are off: drop the window cursor so a stale one never holds the log's rotation. */
+function dropWindowCursor(root) {
   const state = loadState(root);
   const next = state.docs === undefined ? state : updateState(root, (s) => {
     delete s.docs;
@@ -117,18 +155,19 @@ runHook('stop', async (input, root) => {
   let verified = null;
   if (profile.verify.on_stop !== 'off' && profile.verify.steps.length) {
     verified = verifyOnStop(input, root, profile);
-    if (verified?.decision === 'block') return verified; // a failing check wins; the docs cursor stays
-    // Giving up must release the session: no docs block now, the cursor stays for a later passing check.
+    if (verified?.decision === 'block') return verified; // a failing check wins; the window cursor stays
+    // Giving up must release the session: no reminder block now, the cursor stays for a later passing check.
     if (verified?.gaveUp) return { systemMessage: verified.systemMessage };
   }
 
-  // The docs part must never cost the verify result: an error is logged and the turn ends as verify decided.
+  // Reminders must never cost the verify result: an error is logged and the turn ends as verify decided.
+  const on = { docs: profile.docs.remind !== false, release: Boolean(profile.release) && profile.release.remind !== false };
   let reason = null;
   try {
-    if (profile.docs.remind !== false) reason = docsOnStop(root, profile);
-    else dropDocsCursor(root);
+    if (on.docs || on.release) reason = remindersOnStop(root, profile, on);
+    else dropWindowCursor(root);
   } catch (err) {
-    logError(root, 'stop:docs', err);
+    logError(root, 'stop:reminders', err);
   }
   if (!reason) return verified;
   return { ...verified, decision: 'block', reason };

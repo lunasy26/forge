@@ -545,6 +545,234 @@ test('stop docs: long lists are cut with «и ещё N» and the reason stays sh
   assert.ok(r.json.reason.length <= 600, `length ${r.json.reason.length}`);
 });
 
+const CHANGELOG_EMPTY = '# Changelog\n\n## [Unreleased]\n\n## [0.1.0] — 2026-01-01\n\n### Added\n\n- Первое.\n';
+const CHANGELOG_FILLED = '# Changelog\n\n## [Unreleased]\n\n### Fixed\n\n- Починено.\n\n## [0.1.0] — 2026-01-01\n\n### Added\n\n- Первое.\n';
+const RELEASE_REASON = /forge: в этой задаче менялся код \(lib\/a\.mjs\), а в CHANGELOG\.md в \[Unreleased\] пусто\. Если изменение заметно/;
+
+/**
+ * A git project with a committed CHANGELOG.md and lib/a.mjs and a release section in the profile
+ * (`release: null` — none). The first Stop is already done, so the window cursor exists.
+ */
+function releaseProject({ branch = 'feature/x', release = {}, docs, verify = { on_stop: 'off' }, commands, changelog = CHANGELOG_EMPTY, agents } = {}) {
+  const dir = gitRepo(branch);
+  if (changelog !== null) write(dir, 'CHANGELOG.md', changelog);
+  write(dir, 'lib/a.mjs', 'export {}\n');
+  if (agents) {
+    write(dir, 'AGENTS.md', agents);
+    write(dir, 'package.json', PKG);
+  }
+  git(dir, 'add', '-A');
+  git(dir, 'commit', '-q', '-m', 'base');
+  writeProfile(dir, { verify, ...(release ? { release } : {}), ...(docs ? { docs } : {}), ...(commands ? { commands } : {}) });
+  assert.equal(stop(dir).stdout, '', 'first stop only sets the cursor');
+  return dir;
+}
+
+const logSize = (dir) => (existsSync(join(dir, '.forge', 'edits.jsonl')) ? readFileSync(join(dir, '.forge', 'edits.jsonl')).length : 0);
+
+test('stop release: code changed and [Unreleased] empty → one reminder per branch', () => {
+  const dir = releaseProject();
+  edit(dir, 'lib/a.mjs', 'export const a = 1;\n');
+  const r = stop(dir);
+  assert.equal(r.json.decision, 'block');
+  assert.match(r.json.reason, /^forge: /);
+  assert.match(r.json.reason, RELEASE_REASON);
+  assert.match(r.json.reason, /так и скажи и заверши работу\.$/);
+  assert.ok(r.json.reason.length <= 400, `length ${r.json.reason.length}`);
+  assert.deepEqual(state(dir).release.reminded, ['feature/x']);
+  assert.equal(state(dir).docs.offset, logSize(dir), 'one cursor, at the end of the log');
+
+  assert.equal(stop(dir, { stop_hook_active: true }).stdout, '', 'no new edits → nothing');
+  edit(dir, 'lib/b.mjs', 'export {}\n');
+  assert.equal(stop(dir).stdout, '', 'the branch was already reminded');
+});
+
+test('stop release: silent when [Unreleased] has an entry or only ignored files changed', () => {
+  const filled = releaseProject({ changelog: CHANGELOG_FILLED });
+  edit(filled, 'lib/a.mjs', 'export const a = 1;\n');
+  assert.equal(stop(filled).stdout, '');
+
+  const ignored = releaseProject({ release: { ignore: ['scripts/**'] } });
+  edit(ignored, 'test/a.test.mjs', 'x\n');
+  edit(ignored, 'src/__tests__/b.js', 'x\n');
+  edit(ignored, 'lib/a.spec.mjs', 'x\n');
+  edit(ignored, 'docs/guide.md', 'x\n');
+  edit(ignored, 'README.md', 'x\n');
+  edit(ignored, 'pkg/notes.md', 'x\n');
+  edit(ignored, 'scripts/gen.sh', 'x\n');
+  edit(ignored, 'CHANGELOG.md', CHANGELOG_EMPTY.replace('Первое', 'Первая версия'));
+  assert.equal(stop(ignored).stdout, '', 'tests, docs, *.md, profile ignore and the changelog itself do not count');
+  assert.equal(state(ignored).release, undefined, 'nothing remembered');
+
+  const filledNow = releaseProject();
+  edit(filledNow, 'lib/a.mjs', 'export const a = 1;\n');
+  edit(filledNow, 'CHANGELOG.md', CHANGELOG_FILLED);
+  assert.equal(stop(filledNow).stdout, '', 'an entry written in the same window');
+
+  const missing = releaseProject({ changelog: null });
+  edit(missing, 'lib/a.mjs', 'export const a = 1;\n');
+  assert.equal(stop(missing).stdout, '', 'no changelog is forge release --check\'s business');
+});
+
+test('stop release: silent without a release section or with remind false', () => {
+  const none = releaseProject({ release: null });
+  edit(none, 'lib/a.mjs', 'export const a = 1;\n');
+  assert.equal(stop(none).stdout, '');
+
+  const off = releaseProject({ release: { remind: false } });
+  edit(off, 'lib/a.mjs', 'export const a = 1;\n');
+  assert.equal(stop(off).stdout, '');
+  assert.equal(state(off).release, undefined);
+});
+
+test('stop release: on the default branch — once until the next version tag', () => {
+  const dir = releaseProject({ branch: 'main' });
+  edit(dir, 'lib/a.mjs', 'export const a = 1;\n');
+  assert.match(stop(dir).json.reason, RELEASE_REASON);
+  assert.deepEqual(state(dir).release.reminded, ['main@none']);
+  edit(dir, 'lib/a.mjs', 'export const a = 2;\n');
+  assert.equal(stop(dir).stdout, '', 'same tag → quiet');
+
+  git(dir, 'tag', 'not-a-version');
+  edit(dir, 'lib/a.mjs', 'export const a = 3;\n');
+  assert.equal(stop(dir).stdout, '', 'a non-version tag changes nothing');
+
+  git(dir, 'tag', 'v0.1.0');
+  edit(dir, 'lib/a.mjs', 'export const a = 4;\n');
+  assert.match(stop(dir).json.reason, RELEASE_REASON, 'a new version tag → once again');
+  assert.deepEqual(state(dir).release.reminded, ['main@none', 'main@v0.1.0']);
+  edit(dir, 'lib/a.mjs', 'export const a = 5;\n');
+  assert.equal(stop(dir).stdout, '');
+
+  // origin/HEAD names the default branch: "trunk" is default, "main" is then an ordinary branch
+  const trunk = releaseProject({ branch: 'trunk' });
+  git(trunk, 'update-ref', 'refs/remotes/origin/trunk', 'HEAD');
+  git(trunk, 'symbolic-ref', 'refs/remotes/origin/HEAD', 'refs/remotes/origin/trunk');
+  edit(trunk, 'lib/a.mjs', 'export const a = 1;\n');
+  assert.match(stop(trunk).json.reason, RELEASE_REASON);
+  git(trunk, 'checkout', '-q', '-b', 'main');
+  edit(trunk, 'lib/a.mjs', 'export const a = 2;\n');
+  assert.match(stop(trunk).json.reason, RELEASE_REASON);
+  assert.deepEqual(state(trunk).release.reminded, ['trunk@none', 'main']);
+});
+
+test('stop release: a long file list is cut with «и ещё N», the reason stays under 400 chars', () => {
+  const dir = releaseProject({ release: { changelog: 'docs/CHANGES.md' }, changelog: null });
+  write(dir, 'docs/CHANGES.md', CHANGELOG_EMPTY);
+  for (let i = 0; i < 25; i++) edit(dir, `src/module-with-a-rather-long-name-${i}.mjs`, 'export {}\n');
+  const r = stop(dir);
+  assert.match(r.json.reason, /и ещё \d+\), а в docs\/CHANGES\.md в \[Unreleased\] пусто/);
+  assert.ok(r.json.reason.length <= 400, `length ${r.json.reason.length}`);
+});
+
+test('stop release: the remembered keys are capped at the most recent 20', () => {
+  const dir = releaseProject();
+  const s = state(dir);
+  s.release = { reminded: Array.from({ length: 20 }, (_, i) => `old-${i}`) };
+  writeFileSync(join(dir, '.forge', 'state.json'), JSON.stringify(s));
+  edit(dir, 'lib/a.mjs', 'export const a = 1;\n');
+  assert.equal(stop(dir).json.decision, 'block');
+  const kept = state(dir).release.reminded;
+  assert.equal(kept.length, 20);
+  assert.equal(kept[0], 'old-1');
+  assert.equal(kept.at(-1), 'feature/x');
+});
+
+test('stop release: with the agent-docs reminder — one block with both reasons', () => {
+  const dir = releaseProject({ agents: '# Agents\n' });
+  edit(dir, 'package.json', { ...PKG, scripts: { build: 'tsc' } });
+  edit(dir, 'lib/a.mjs', 'export const a = 1;\n');
+  const r = stop(dir);
+  assert.equal(r.json.decision, 'block');
+  const [docs, release, ...rest] = r.json.reason.split('\n\n');
+  assert.match(docs, /^forge: в этой задаче изменились команды или структура: package\.json \(scripts\)/);
+  assert.match(release, /^forge: в этой задаче менялся код \(package\.json, lib\/a\.mjs\)/);
+  assert.deepEqual(rest, []);
+  assert.deepEqual(state(dir).release.reminded, ['feature/x']);
+  assert.equal(stop(dir).stdout, '');
+
+  // only one of them fires → only its reason, and only its memory changes
+  const docsOnly = releaseProject({ agents: '# Agents\n', changelog: CHANGELOG_FILLED });
+  edit(docsOnly, 'package.json', { ...PKG, scripts: { build: 'tsc' } });
+  const d = stop(docsOnly);
+  assert.doesNotMatch(d.json.reason, /CHANGELOG/);
+  assert.equal(state(docsOnly).release, undefined);
+});
+
+test('stop release: an error in one reminder is logged, the other still speaks', () => {
+  const dir = releaseProject({ agents: '# Agents\n', changelog: null });
+  write(dir, 'CHANGELOG.md/x', 'a directory where the changelog should be');
+  edit(dir, 'package.json', { ...PKG, scripts: { build: 'tsc' } });
+  const r = stop(dir);
+  assert.equal(r.json.decision, 'block');
+  assert.match(r.json.reason, /package\.json \(scripts\)/);
+  assert.doesNotMatch(r.json.reason, /\[Unreleased\]/);
+  assert.match(readFileSync(join(dir, '.forge', 'log', 'errors.log'), 'utf8'), /\[stop:release\]/);
+  assert.equal(state(dir).docs.offset, logSize(dir));
+});
+
+test('stop release: a failing check wins and giving up stays silent; the reminder comes after a pass', () => {
+  const dir = releaseProject({ commands: { test: 'node check.mjs' }, verify: { steps: ['test'], on_stop: 'full' } });
+  write(dir, 'check.mjs', "import { readFileSync } from 'node:fs';\nif (readFileSync('status.txt','utf8').trim() !== 'ok') { console.error('check failed'); process.exit(1); }\n");
+  write(dir, 'status.txt', 'fail');
+  edit(dir, 'lib/a.mjs', 'export const a = 1;\n');
+  const cursor = state(dir).docs.offset;
+  const blocked = stop(dir);
+  assert.equal(blocked.json.decision, 'block');
+  assert.match(blocked.json.reason, /проверка перед завершением не прошла/);
+  assert.doesNotMatch(blocked.json.reason, /Unreleased/);
+  edit(dir, 'lib/a.mjs', 'export const a = 2;\n');
+  assert.doesNotMatch(stop(dir, { stop_hook_active: true }).json.reason, /Unreleased/);
+  edit(dir, 'lib/a.mjs', 'export const a = 3;\n');
+  const gaveUp = stop(dir, { stop_hook_active: true });
+  assert.match(gaveUp.json.systemMessage, /3 раз\(а\) подряд/);
+  assert.equal(gaveUp.json.decision, undefined);
+  assert.equal(state(dir).docs.offset, cursor, 'window cursor untouched');
+  assert.equal(state(dir).release, undefined, 'nothing remembered');
+
+  edit(dir, 'status.txt', 'ok');
+  const r = stop(dir);
+  assert.equal(r.json.decision, 'block');
+  assert.match(r.json.reason, /^forge: в этой задаче менялся код \(lib\/a\.mjs, status\.txt\), а в CHANGELOG\.md в \[Unreleased\] пусто/);
+});
+
+test('stop release: one window cursor survives "docs off, release on" and "release off, docs on"', () => {
+  const dir = releaseProject({ agents: '# Agents\n', docs: { remind: false } });
+  assert.equal(state(dir).docs.offset, logSize(dir), 'docs off, release on: the cursor exists');
+  edit(dir, 'package.json', { ...PKG, scripts: { build: 'tsc' } });
+  edit(dir, 'lib/a.mjs', 'export const a = 1;\n');
+  const r = stop(dir);
+  assert.match(r.json.reason, /^forge: в этой задаче менялся код/);
+  assert.doesNotMatch(r.json.reason, /команды или структура/);
+  assert.equal(state(dir).docs.offset, logSize(dir));
+
+  writeProfile(dir, { verify: { on_stop: 'off' }, release: { remind: false } });
+  assert.equal(stop(dir).stdout, '', 'the window was consumed: nothing is re-read from the start');
+  assert.equal(state(dir).docs.offset, logSize(dir), 'release off, docs on: the cursor stays');
+  edit(dir, 'package.json', { ...PKG, scripts: { build: 'tsc', lint: 'eslint .' } });
+  const d = stop(dir);
+  assert.match(d.json.reason, /package\.json \(scripts\)/);
+  assert.doesNotMatch(d.json.reason, /Unreleased/);
+
+  writeProfile(dir, { verify: { on_stop: 'off' }, docs: { remind: false }, release: { remind: false } });
+  assert.equal(stop(dir).stdout, '');
+  assert.equal(state(dir).docs, undefined, 'both off: the cursor is dropped');
+
+  // a stale cursor with only the release reminder on still lets a caught-up log rotate
+  const rot = releaseProject({ docs: { remind: false } });
+  const log = join(rot, '.forge', 'edits.jsonl');
+  writeFileSync(log, `${JSON.stringify({ t: 0, f: 'gone.txt' })}\n`.repeat(12000));
+  const size = logSize(rot);
+  const s = state(rot);
+  s.verify = { ok: true, summary: 'ok', edits_offset: size, notified: false };
+  s.lint_offset = size;
+  s.docs.offset = size;
+  writeFileSync(join(rot, '.forge', 'state.json'), JSON.stringify(s));
+  assert.equal(stop(rot).stdout, '');
+  assert.equal(logSize(rot), 0, 'log rotated');
+  assert.equal(state(rot).docs.offset, 0);
+});
+
 test('post-batch: lints files edited since the last batch, once', () => {
   const dir = projectWithCheck({ lint: true });
   edit(dir, 'good.ts', 'fine');
