@@ -1,0 +1,12 @@
+{
+  "name": "forge-dev",
+  "owner": { "name": "forge" },
+  "description": "Marketplace for the forge plugin.",
+  "plugins": [
+    {
+      "name": "forge",
+      "source": "./",
+      "description": "Guards, auto-verification, per-project profile and model routing for role subagents."
+    }
+  ]
+}

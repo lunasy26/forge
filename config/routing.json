@@ -1,0 +1,38 @@
+{
+  "models": ["haiku", "sonnet", "opus", "fable"],
+  "efforts": ["low", "medium", "high", "xhigh", "max"],
+  "roles": {
+    "scout": { "agent": "scout" },
+    "mechanic": { "agent": "implementer" },
+    "implementer": { "agent": "implementer" },
+    "architect": { "agent": null },
+    "reviewer": { "agent": "reviewer" },
+    "debugger": { "agent": "debugger" }
+  },
+  "modes": {
+    "eco": {
+      "scout": "haiku/low",
+      "mechanic": "sonnet/low",
+      "implementer": "sonnet/medium",
+      "architect": "sonnet/high",
+      "reviewer": "sonnet/high",
+      "debugger": "opus/high"
+    },
+    "normal": {
+      "scout": "haiku/low",
+      "mechanic": "sonnet/medium",
+      "implementer": "sonnet/high",
+      "architect": "opus/high",
+      "reviewer": "opus/high",
+      "debugger": "fable/high"
+    },
+    "max": {
+      "scout": "sonnet/medium",
+      "mechanic": "sonnet/high",
+      "implementer": "opus/high",
+      "architect": "opus/xhigh",
+      "reviewer": "fable/high",
+      "debugger": "fable/high"
+    }
+  }
+}

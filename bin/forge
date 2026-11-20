@@ -1,0 +1,10 @@
+#!/usr/bin/env node
+// forge CLI. Dynamic import keeps this entry point working whether Node treats it as CJS or ESM.
+import('../lib/cli.mjs')
+  .then((m) => {
+    process.exitCode = m.main(process.argv.slice(2));
+  })
+  .catch((err) => {
+    process.stderr.write(`forge: внутренняя ошибка: ${err?.stack || err}\n`);
+    process.exitCode = 3;
+  });

@@ -1,0 +1,82 @@
+{
+  "$schema": "https://json-schema.org/draft/2020-12/schema",
+  "title": "forge project profile",
+  "description": "Профиль проекта для плагина forge (.forge/profile.json).",
+  "type": "object",
+  "$defs": {
+    "command": {
+      "oneOf": [
+        { "type": "string", "description": "Команда оболочки. {files} заменяется списком изменённых файлов." },
+        {
+          "type": "object",
+          "required": ["run"],
+          "additionalProperties": false,
+          "properties": {
+            "run": { "type": "string", "description": "Команда оболочки. {files} заменяется списком изменённых файлов." },
+            "ext": {
+              "type": "array",
+              "items": { "type": "string", "pattern": "^\\." },
+              "description": "Подставлять в {files} только файлы с этими расширениями. Нет подходящих — шаг пропускается."
+            }
+          }
+        }
+      ]
+    },
+    "route": { "type": "string", "pattern": "^(haiku|sonnet|opus|fable)/(low|medium|high|xhigh|max)$" },
+    "routingMode": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "scout": { "$ref": "#/$defs/route" },
+        "mechanic": { "$ref": "#/$defs/route" },
+        "implementer": { "$ref": "#/$defs/route" },
+        "architect": { "$ref": "#/$defs/route" },
+        "reviewer": { "$ref": "#/$defs/route" },
+        "debugger": { "$ref": "#/$defs/route" }
+      }
+    }
+  },
+  "properties": {
+    "$schema": { "type": "string" },
+    "version": { "const": 1 },
+    "commands": {
+      "type": "object",
+      "description": "Именованные команды. Известные имена: format, lint, typecheck, test, test_fast.",
+      "additionalProperties": { "$ref": "#/$defs/command" }
+    },
+    "verify": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "steps": { "type": "array", "items": { "type": "string" }, "description": "Имена команд из commands, по порядку. Останавливается на первом падении." },
+        "on_stop": { "enum": ["off", "fast", "full"], "description": "Проверка при завершении хода: fast берёт test_fast вместо test, если он задан." },
+        "timeout_sec": { "type": "integer", "minimum": 1, "maximum": 540, "description": "Общий бюджет времени на проверку." }
+      }
+    },
+    "git": {
+      "type": "object",
+      "additionalProperties": false,
+      "properties": {
+        "protected_branches": { "type": "array", "items": { "type": "string" }, "description": "Ветки, куда нельзя пушить. * — внутри сегмента, ** — через сегменты." }
+      }
+    },
+    "protected_files": {
+      "type": "array",
+      "items": { "type": "string" },
+      "description": "Добавляются к встроенным (.env, ключи). Синтаксис как в .gitignore; !pattern снимает защиту."
+    },
+    "risky_paths": { "type": "array", "items": { "type": "string" }, "description": "Пути, правка которых требует уровня T3 (с v0.2)." },
+    "tdd": { "enum": ["off", "encouraged", "required"] },
+    "mode": { "enum": ["eco", "normal", "max"], "description": "Режим по умолчанию; forge mode переопределяет его в состоянии." },
+    "routing": {
+      "type": "object",
+      "description": "Переопределения таблицы моделей: { режим: { роль: \"model/effort\" } }.",
+      "additionalProperties": false,
+      "properties": {
+        "eco": { "$ref": "#/$defs/routingMode" },
+        "normal": { "$ref": "#/$defs/routingMode" },
+        "max": { "$ref": "#/$defs/routingMode" }
+      }
+    }
+  }
+}
