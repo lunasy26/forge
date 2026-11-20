@@ -252,6 +252,14 @@ test('release --check: a changelog warning and a missing tag are warnings, not f
   assert.match(warn.stdout, /! CHANGELOG\.md: .*\[bad-heading\]/);
 });
 
+test('release: preview heading uses the separator of the latest version heading', () => {
+  const dir = releaseRepo({ changelog: '# Changelog\n\n## [Unreleased]\n\n### Added\n- Новая команда\n\n## [0.1.0] - 2026-01-01\n\n### Added\n- Первая версия\n' });
+  const r = runCli(['release', '--date', '2026-03-04'], { cwd: dir });
+  assert.match(r.stdout, /CHANGELOG\.md: \[Unreleased\] → \[0\.2\.0\] - 2026-03-04/);
+  const j = JSON.parse(runCli(['release', '--json', '--date', '2026-03-04'], { cwd: dir }).stdout);
+  assert.equal(j.files[0].to, '[0.2.0] - 2026-03-04');
+});
+
 test('release: preview suggests the level and lists every file, changing nothing', () => {
   const dir = releaseRepo();
   const r = runCli(['release', '--date', '2026-03-04'], { cwd: dir });

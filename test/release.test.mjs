@@ -117,7 +117,7 @@ test('*.csproj: <Version>', () => {
   assert.equal(read(dir, 'src/App.csproj'), src.replace('2.1.0', '2.2.0'));
 });
 
-test('*.csproj: only Project > PropertyGroup (no Condition) > Version; never a PackageReference', () => {
+test('*.csproj: only Project > PropertyGroup (no Condition) > Version; never a PackageReference; several is an error', () => {
   const dir = tempDir();
   const src = `<Project Sdk="Microsoft.NET.Sdk">
   <!-- <Version>8.8.8</Version> -->
@@ -132,15 +132,21 @@ test('*.csproj: only Project > PropertyGroup (no Condition) > Version; never a P
     <TargetFramework>net8.0</TargetFramework>
     <Version>2.1.0</Version>
   </PropertyGroup>
-  <PropertyGroup>
-    <Version>3.0.0</Version>
-  </PropertyGroup>
 </Project>
 `;
   write(dir, 'App.csproj', src);
   assert.equal(readVersion(dir, 'App.csproj').version, '2.1.0');
   writeVersion(dir, 'App.csproj', '2.2.0');
   assert.equal(read(dir, 'App.csproj'), src.replace('<Version>2.1.0', '<Version>2.2.0'));
+
+  // several unconditional <Version>: ambiguous, an error and nothing written
+  const many = src.replace('</Project>', '  <PropertyGroup>\n    <Version>3.0.0</Version>\n  </PropertyGroup>\n</Project>');
+  write(dir, 'Many.csproj', many);
+  const m = readVersion(dir, 'Many.csproj');
+  assert.equal(m.version, null);
+  assert.match(m.error, /несколько <Version> без Condition — укажи pattern/);
+  assert.throws(() => writeVersion(dir, 'Many.csproj', '2.2.0'), /несколько <Version>/);
+  assert.equal(read(dir, 'Many.csproj'), many);
 
   // no unconditional version of the project: an error, nothing written
   const only = `<Project><ItemGroup><PackageReference Include="L"><Version>1.0.0</Version></PackageReference></ItemGroup>

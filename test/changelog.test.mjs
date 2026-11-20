@@ -455,17 +455,22 @@ test('releaseChangelog: footer links with a title are updated and keep their tit
 });
 
 test('checkChangelog: link definitions outside the footer are reported', () => {
-  const stray = SAMPLE.replace('- Second thing.\n', '- Second thing.\n\n[ref]: https://example.com/ref\n');
+  const stray = SAMPLE.replace('- Second thing.\n', '- Second thing.\n\n[0.9.0]: https://example.com/ref\n');
   const issues = checkChangelog(stray);
   const hit = issues.find((i) => i.code === 'stray-link');
   assert.equal(hit.level, 'warn');
-  assert.match(hit.message, /ref/);
+  assert.match(hit.message, /0\.9\.0/);
   assert.equal(issues.filter((i) => i.code !== 'stray-link').length, 0);
   // a non-link line between footer lines cuts the footer: the lines above it are stray
   const cut = SAMPLE.replace('[0.3.0]:', 'Some text\n[0.3.0]:');
   assert.equal(has(cut, 'stray-link'), true);
   assert.equal(has(SAMPLE, 'stray-link'), false);
   assert.equal(has(SAMPLE.slice(0, SAMPLE.indexOf('[Unreleased]:')), 'stray-link'), false);
+  // only Unreleased / SemVer labels are release links; other references (header, docs) do not warn
+  const refs = SAMPLE.replace('- Second thing.\n', '- Second thing.\n\n[kac]: https://keepachangelog.com/\n');
+  assert.equal(has(refs, 'stray-link'), false);
+  assert.equal(has(SAMPLE.replace('- Second thing.\n', '- Second thing.\n\n[UNRELEASED]: https://x/y\n'), 'stray-link'), true);
+  assert.equal(has(SAMPLE.replace('- Second thing.\n', '- Second thing.\n\n[9.9.9]: https://x/y\n'), 'stray-link'), true);
   // a code fence is not a stray link
   assert.equal(has('## [Unreleased]\n\n```\n[a]: http://x\n```\n\n- b\n', 'stray-link'), false);
 });
