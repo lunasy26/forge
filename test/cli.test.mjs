@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
+import { chmodSync, existsSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { git, gitRepo, runCli, write, writeProfile } from './helpers.mjs';
 
@@ -161,4 +161,227 @@ test('docs: --fix says why it skipped a fixable issue', { skip: process.platform
   const json = runCli(['docs', '--fix', '--json'], { cwd: dir });
   assert.ok(Array.isArray(JSON.parse(json.stdout)), 'json output stays parseable');
   assert.match(json.stderr, /пропущен CLAUDE\.md/);
+});
+
+// ---- release ----
+
+const RELEASE_CHANGELOG = `# Changelog
+
+## [Unreleased]
+
+### Added
+- Новая команда
+
+## [0.1.0] — 2026-01-01
+
+### Added
+- Первая версия
+`;
+
+const RELEASE_PROFILE = {
+  release: { version_files: ['package.json', { path: 'README.md', pattern: 'version-(\\d+\\.\\d+\\.\\d+)-blue' }] },
+};
+
+/** A temp repo with a released 0.1.0 (tagged v0.1.0), an Added entry in [Unreleased] and a clean tree. */
+function releaseRepo({ changelog = RELEASE_CHANGELOG, tag = true } = {}) {
+  const dir = gitRepo();
+  writeProfile(dir, RELEASE_PROFILE);
+  write(dir, 'CHANGELOG.md', changelog);
+  write(dir, 'package.json', '{\n  "name": "x",\n  "version": "0.1.0"\n}\n');
+  write(dir, 'README.md', '# X\n![v](https://img.shields.io/badge/version-0.1.0-blue)\n');
+  git(dir, 'add', '-A');
+  git(dir, 'commit', '-q', '-m', 'feat: x');
+  if (tag) git(dir, 'tag', '-a', 'v0.1.0', '-m', 'release 0.1.0');
+  return dir;
+}
+
+test('release: every form says so when the release section is not configured', () => {
+  const dir = gitRepo();
+  writeProfile(dir, {});
+  for (const args of [['release'], ['release', '--check'], ['release', 'minor', '--yes']]) {
+    const r = runCli(args, { cwd: dir });
+    assert.equal(r.code, 1, args.join(' '));
+    assert.match(r.stdout, /✗ раздел release в профиле не настроен — forge init предложит его, если проект выпускается/);
+  }
+});
+
+test('release --check: clean project passes, each problem kind is reported', () => {
+  const dir = releaseRepo();
+  const ok = runCli(['release', '--check'], { cwd: dir });
+  assert.equal(ok.code, 0, ok.stdout);
+  assert.equal(ok.stdout.trim(), '✓ Журнал изменений в порядке');
+  assert.equal(runCli(['release', '--check', '--json'], { cwd: dir }).stdout.trim(), '[]');
+
+  // version file out of step with the changelog
+  write(dir, 'package.json', '{\n  "version": "0.0.9"\n}\n');
+  const mismatch = runCli(['release', '--check', '--json'], { cwd: dir });
+  assert.equal(mismatch.code, 1);
+  const [issue] = JSON.parse(mismatch.stdout);
+  assert.equal(issue.code, 'version-mismatch');
+  assert.equal(issue.level, 'error');
+  assert.equal(issue.path, 'package.json');
+  assert.match(runCli(['release', '--check'], { cwd: dir }).stdout, /✗ package\.json: .*0\.0\.9.*0\.1\.0/);
+
+  // unreadable version file
+  write(dir, 'package.json', '{ "name": "x" }\n');
+  assert.equal(JSON.parse(runCli(['release', '--check', '--json'], { cwd: dir }).stdout)[0].code, 'version-file-unreadable');
+
+  // changelog error from checkChangelog
+  write(dir, 'package.json', '{ "version": "0.1.0" }\n');
+  write(dir, 'CHANGELOG.md', '# Changelog\n\n## [0.1.0] — 2026-01-01\n\n### Added\n- Первая версия\n');
+  const noUnreleased = runCli(['release', '--check'], { cwd: dir });
+  assert.equal(noUnreleased.code, 1);
+  assert.match(noUnreleased.stdout, /✗ CHANGELOG\.md: .*\[no-unreleased\]/);
+
+  // changelog file missing
+  git(dir, 'rm', '-q', '-f', 'CHANGELOG.md');
+  const missing = JSON.parse(runCli(['release', '--check', '--json'], { cwd: dir }).stdout);
+  assert.ok(missing.some((i) => i.code === 'changelog-missing' && i.level === 'error' && i.path === 'CHANGELOG.md'));
+});
+
+test('release --check: a changelog warning and a missing tag are warnings, not failures', () => {
+  const dir = releaseRepo({ tag: false });
+  const noTag = runCli(['release', '--check'], { cwd: dir });
+  assert.equal(noTag.code, 0);
+  assert.match(noTag.stdout, /! .*тега v0\.1\.0 нет \[tag-missing\]/);
+
+  git(dir, 'tag', '-a', 'v0.1.0', '-m', 'release 0.1.0');
+  write(dir, 'CHANGELOG.md', `${RELEASE_CHANGELOG}\n## Прочее\n`);
+  const warn = runCli(['release', '--check'], { cwd: dir });
+  assert.equal(warn.code, 0);
+  assert.match(warn.stdout, /! CHANGELOG\.md: .*\[bad-heading\]/);
+});
+
+test('release: preview suggests the level and lists every file, changing nothing', () => {
+  const dir = releaseRepo();
+  const r = runCli(['release', '--date', '2026-03-04'], { cwd: dir });
+  assert.equal(r.code, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /Уровень: minor \(есть Added\)/);
+  assert.match(r.stdout, /0\.1\.0 → 0\.2\.0/);
+  assert.match(r.stdout, /CHANGELOG\.md: \[Unreleased\] → \[0\.2\.0\] — 2026-03-04/);
+  assert.match(r.stdout, /package\.json: 0\.1\.0 → 0\.2\.0/);
+  assert.match(r.stdout, /README\.md: 0\.1\.0 → 0\.2\.0/);
+  assert.match(r.stdout, /Тег: v0\.2\.0/);
+  assert.match(r.stdout, /Коммит: chore\(release\): 0\.2\.0/);
+  assert.match(r.stdout, /Выпустить: forge release minor --date 2026-03-04 --yes/);
+  assert.equal(git(dir, 'status', '--porcelain'), '');
+
+  const json = JSON.parse(runCli(['release', 'patch', '--json'], { cwd: dir }).stdout);
+  assert.equal(json.level, 'patch');
+  assert.equal(json.current, '0.1.0');
+  assert.equal(json.next, '0.1.1');
+  assert.equal(json.tag, 'v0.1.1');
+  assert.equal(json.commit, 'chore(release): 0.1.1');
+  assert.deepEqual(json.files.map((f) => f.path), ['CHANGELOG.md', 'package.json', 'README.md']);
+  assert.deepEqual(json.files[1], { path: 'package.json', from: '0.1.0', to: '0.1.1' });
+});
+
+test('release: nothing to release when [Unreleased] is empty; bad arguments are usage errors', () => {
+  const dir = releaseRepo({ changelog: '# Changelog\n\n## [Unreleased]\n\n## [0.1.0] — 2026-01-01\n\n### Added\n- Первая версия\n' });
+  const r = runCli(['release'], { cwd: dir });
+  assert.equal(r.code, 1);
+  assert.match(r.stdout, /✗ в \[Unreleased\] пусто — выпускать нечего/);
+  assert.equal(runCli(['release', 'minor', '--yes'], { cwd: dir }).code, 1);
+  assert.equal(runCli(['release', 'huge'], { cwd: dir }).code, 2);
+  assert.equal(runCli(['release', '--date', '2026-02-31'], { cwd: dir }).code, 2);
+  assert.equal(runCli(['release', '--date'], { cwd: dir }).code, 2);
+  assert.equal(runCli(['release', '--bogus'], { cwd: dir }).code, 2);
+});
+
+test('release --yes: moves the changelog, bumps files, commits and tags without pushing', () => {
+  const dir = releaseRepo();
+  const before = git(dir, 'rev-parse', 'HEAD');
+  const r = runCli(['release', 'minor', '--yes', '--date', '2026-03-04'], { cwd: dir });
+  assert.equal(r.code, 0, r.stdout + r.stderr);
+  assert.match(r.stdout, /Тег: v0\.2\.0/);
+  assert.match(r.stdout, /Отправить: git push origin main && git push origin v0\.2\.0/);
+
+  const changelog = readFileSync(join(dir, 'CHANGELOG.md'), 'utf8');
+  assert.match(changelog, /## \[Unreleased\]\n\n## \[0\.2\.0\] — 2026-03-04\n\n### Added\n- Новая команда/);
+  assert.match(readFileSync(join(dir, 'package.json'), 'utf8'), /^\{\n {2}"name": "x",\n {2}"version": "0\.2\.0"\n\}\n$/);
+  assert.match(readFileSync(join(dir, 'README.md'), 'utf8'), /badge\/version-0\.2\.0-blue/);
+
+  assert.equal(git(dir, 'log', '-1', '--format=%s'), 'chore(release): 0.2.0');
+  assert.equal(git(dir, 'rev-parse', 'HEAD~1'), before);
+  assert.equal(git(dir, 'status', '--porcelain'), '');
+  assert.equal(git(dir, 'cat-file', '-t', 'v0.2.0'), 'tag', 'annotated tag');
+  assert.equal(git(dir, 'rev-parse', 'v0.2.0^{commit}'), git(dir, 'rev-parse', 'HEAD'));
+  assert.match(r.stdout, new RegExp(git(dir, 'rev-parse', '--short=7', 'HEAD')));
+  assert.equal(git(dir, 'remote'), '', 'nothing was pushed (no remote exists)');
+  assert.equal(runCli(['release', '--check'], { cwd: dir }).code, 0);
+});
+
+test('release --yes: an explicit version works, and a lower one is refused', () => {
+  const dir = releaseRepo();
+  const low = runCli(['release', '0.0.5', '--yes'], { cwd: dir });
+  assert.equal(low.code, 1);
+  assert.match(low.stdout, /✗ версия 0\.0\.5 не больше текущей 0\.1\.0/);
+  assert.equal(git(dir, 'status', '--porcelain'), '');
+  const ok = runCli(['release', '1.0.0', '--yes', '--date', '2026-03-04'], { cwd: dir });
+  assert.equal(ok.code, 0, ok.stdout + ok.stderr);
+  assert.equal(git(dir, 'tag', '--list', 'v1.0.0'), 'v1.0.0');
+});
+
+test('release --yes: refused on a dirty tree, an existing tag or without a level; nothing changes', () => {
+  const dir = releaseRepo();
+  const head = git(dir, 'rev-parse', 'HEAD');
+
+  assert.equal(runCli(['release', '--yes'], { cwd: dir }).code, 2, 'missing level is a usage error');
+
+  write(dir, 'README.md', '# X changed\n');
+  const dirty = runCli(['release', 'minor', '--yes'], { cwd: dir });
+  assert.equal(dirty.code, 1);
+  assert.match(dirty.stdout, /✗ .*незакоммиченные изменения/);
+  git(dir, 'checkout', '--', 'README.md');
+
+  git(dir, 'tag', 'v0.2.0');
+  const tagged = runCli(['release', 'minor', '--yes'], { cwd: dir });
+  assert.equal(tagged.code, 1);
+  assert.match(tagged.stdout, /✗ тег v0\.2\.0 уже существует/);
+
+  assert.equal(git(dir, 'rev-parse', 'HEAD'), head);
+  assert.equal(git(dir, 'status', '--porcelain'), '');
+  assert.equal(readFileSync(join(dir, 'CHANGELOG.md'), 'utf8'), RELEASE_CHANGELOG);
+
+  const bare = gitRepo();
+  writeProfile(bare, RELEASE_PROFILE);
+  const outside = runCli(['release', 'patch', '--yes'], { cwd: bare });
+  assert.equal(outside.code, 1);
+});
+
+test('release --yes: a failing commit restores every changed file and leaves no tag', () => {
+  const dir = releaseRepo();
+  const hooks = join(dir, 'test-hooks');
+  write(dir, 'test-hooks/pre-commit', '#!/bin/sh\necho "no commits today" >&2\nexit 1\n');
+  chmodSync(join(hooks, 'pre-commit'), 0o755);
+  git(dir, 'config', 'core.hooksPath', hooks);
+  git(dir, 'add', 'test-hooks');
+  git(dir, 'config', 'core.hooksPath', '/dev/null');
+  git(dir, 'commit', '-q', '-m', 'chore: hook');
+  git(dir, 'config', 'core.hooksPath', hooks);
+  const head = git(dir, 'rev-parse', 'HEAD');
+
+  const r = runCli(['release', 'minor', '--yes', '--date', '2026-03-04'], { cwd: dir });
+  assert.equal(r.code, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /✗ git commit не удался/);
+  assert.match(r.stdout, /Файлы возвращены в исходное состояние/);
+  assert.equal(git(dir, 'rev-parse', 'HEAD'), head);
+  assert.equal(git(dir, 'status', '--porcelain'), '', 'working tree and index are back to HEAD');
+  assert.equal(readFileSync(join(dir, 'CHANGELOG.md'), 'utf8'), RELEASE_CHANGELOG);
+  assert.match(readFileSync(join(dir, 'package.json'), 'utf8'), /"version": "0\.1\.0"/);
+  assert.equal(git(dir, 'tag', '--list', 'v0.2.0'), '');
+});
+
+test('doctor: shows the changelog line only when release is configured', () => {
+  const plain = gitRepo();
+  writeProfile(plain, {});
+  assert.doesNotMatch(runCli(['doctor'], { cwd: plain }).stdout, /Журнал изменений/);
+
+  const dir = releaseRepo();
+  assert.match(runCli(['doctor'], { cwd: dir }).stdout, /✓ Журнал изменений в порядке/);
+  write(dir, 'package.json', '{ "version": "0.0.9" }\n');
+  assert.match(runCli(['doctor'], { cwd: dir }).stdout, /✗ Журнал изменений: 1 замечание — forge release --check/);
+  write(dir, 'package.json', '{ "version": "0.1.0" }\n');
+  git(dir, 'tag', '-d', 'v0.1.0');
+  assert.match(runCli(['doctor'], { cwd: dir }).stdout, /! Журнал изменений: 1 замечание — forge release --check/);
 });
