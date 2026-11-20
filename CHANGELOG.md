@@ -10,6 +10,8 @@
 
 ## [Unreleased]
 
+## [0.3.0] — 2026-11-21
+
 ### Added
 - Схема агентских файлов: `AGENTS.md` — источник, рядом `CLAUDE.md` из одной строки `@AGENTS.md`, в том числе
   во вложенных каталогах. Вложенный `CLAUDE.md` Claude Code подгружает по требованию, поэтому шим нужен и там.
@@ -33,6 +35,8 @@
 - Скилл `/forge:docs`: создать, перенести и разделить агентские файлы с резервной копией и проверкой, что текст
   не потерян; `guide.md` — когда нужен вложенный файл. `/forge:init` предлагает его (или `forge docs --fix`) в
   конце настройки.
+- README на английском (`README.md`) и русском (`README.ru.md`) с переключателем языка, оглавлением,
+  переходами между разделами и схемой жизненного цикла хуков.
 
 ### Changed
 - Журнал правок `.forge/edits.jsonl` получил третий курсор — `docs.offset` в `state.json`. Журнал обнуляется,
@@ -114,6 +118,7 @@
 - Скиллы `/forge:init`, `/forge:mode`, `/forge:plan`, `/forge:execute`, `/forge:review`; CLI `forge` с командами
   `init`, `state`, `mode`, `route`, `verify`, `doctor`.
 
-[Unreleased]: https://github.com/lunasy26/forge/compare/v0.2.0...HEAD
+[Unreleased]: https://github.com/lunasy26/forge/compare/v0.3.0...HEAD
+[0.3.0]: https://github.com/lunasy26/forge/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/lunasy26/forge/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/lunasy26/forge/releases/tag/v0.1.0
