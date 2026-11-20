@@ -14,6 +14,7 @@ Each hook is `node hooks/<name>.mjs`: it reads the event JSON on stdin and write
 - [Format and lint](#format-and-lint)
 - [Verification on Stop](#verification-on-stop)
 - [Reminders at the end of a turn](#reminders-at-the-end-of-a-turn)
+- [Message language](#message-language)
 - [Limitations](#limitations)
 
 ## Hook table
@@ -89,6 +90,23 @@ After verification, `Stop` runs two one-shot reminders over one shared window of
 - the [reminder about an empty `[Unreleased]`](releases.md#reminder-about-an-empty-unreleased) — only with a `release` section in the profile, when code changed and `[Unreleased]` has no entries.
 
 If both fire, Claude gets one `block` with both reasons. Verification comes first: after a failed check there is no reminder. The details — what counts as a change, what clears a reminder, when they stay quiet — are on the pages of each reminder.
+
+## Message language
+
+forge shows its messages in English or Russian. Each hook and each CLI call picks the language once, at start, from the first source that gives an answer:
+
+1. the `FORGE_LANG` environment variable (`en` or `ru`);
+2. the [`language`](profile.md#profile-fields) field of the profile, if it is `en` or `ru` (`auto` means "keep looking");
+3. your latest message in the session transcript (`transcript_path` of the hook event). Code blocks (including an unclosed one), inline code and URLs are ignored; if Cyrillic makes up at least 0.3 of the remaining letters, the language is Russian, otherwise English. A message with fewer than 3 letters tells nothing, so the search goes on. Tool results, command wrappers and system reminders are not your messages;
+4. `lang` in the [state](state.md#state-file): the `Stop` hook stores the language of your latest message there (only in a project with a profile), and the CLI, which has no transcript, reads it. The hooks use it too when the session has no message of yours yet (the first event of a new session);
+5. the system locale: `LC_ALL`, `LC_MESSAGES` or `LANG` starting with `ru` gives Russian;
+6. English.
+
+An unknown value in `FORGE_LANG` or in `language` is skipped as if it were not set.
+
+What is translated: CLI output (including `forge init` notes and the `forge doctor` report), the reasons of the guard hooks, the context and reasons of the other hooks, profile validation errors, the issues of [`forge docs`](agent-docs.md#issue-codes) and [`forge release --check`](releases.md#changelog-checks). What is not: the error log `.forge/log/errors.log` (always English), data that forge quotes (command output, file paths, changelog entries, the profile's own text), and the skills and agents, which are written in English: Claude answers in your language anyway.
+
+The messages quoted on the pages of this documentation are the Russian ones, with a translation in parentheses; the English text says the same in other words. How to add a message is on the [Development](development.md#adding-a-message) page.
 
 ## Limitations
 

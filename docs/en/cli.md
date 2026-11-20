@@ -28,6 +28,10 @@ The hooks and the skills call `forge` for everything deterministic; you can run 
 
 An unknown command (or `state` subcommand) gives exit code 2, an internal CLI error gives 3. Errors are printed to stderr as `forge: …`.
 
+## Message language
+
+The CLI answers in English or Russian. `FORGE_LANG=ru forge doctor` (or `en`) forces the language for one run and wins over the profile's [`language`](profile.md#profile-fields); without it the CLI uses the profile, then the language that the `Stop` hook remembered in [`state.lang`](state.md#state-file), then the system locale (`LC_ALL`, `LC_MESSAGES`, `LANG`), then English. The full order is on the [Hooks](hooks.md#message-language) page.
+
 ## Project root
 
 The project root for the CLI and the hooks is `CLAUDE_PROJECT_DIR` if it is set; otherwise the nearest ancestor of the current directory with `.forge/profile.json` (not above the home directory); otherwise the root of the git repository; otherwise the current directory.

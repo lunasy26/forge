@@ -15,7 +15,7 @@ Whatever must always or never happen is done by hooks and the `forge` CLI; skill
 
 Without `.forge/profile.json` only the [Bash guard](docs/en/guards.md#bash-guard) and the [file guard](docs/en/guards.md#file-guard) run, with built-in defaults (branches `main` and `master`, `.env*` files and keys are protected). There is no lint and no auto-verification, and the hooks write nothing into the repository. In a git repository without a profile, session start adds one line suggesting `/forge:init`; outside a git repository, nothing.
 
-> forge speaks Russian: CLI output, hook reasons (prefixed `forge:`) and profile errors. The [documentation](#documentation) quotes those messages verbatim and translates them in parentheses.
+> forge talks in the language you write in, English or Russian: CLI output, hook reasons (prefixed `forge:`) and profile errors. It follows your latest message in the session, then the remembered language and the system locale, and falls back to English. To force a language, set `"language": "en"` or `"ru"` in the profile, or `FORGE_LANG`; details are in [Message language](docs/en/hooks.md#message-language). The [documentation](#documentation) quotes the Russian messages verbatim and translates them in parentheses.
 
 ## Why forge
 
@@ -109,7 +109,7 @@ forge replaces Superpowers and conflicts with it. If `superpowers@…` is enable
 
 ## Documentation
 
-- [Hooks](docs/en/hooks.md) — the hook table, fail-open and fail-closed, session start context, format and lint after edits, verification on Stop, the end-of-turn reminders.
+- [Hooks](docs/en/hooks.md) — the hook table, fail-open and fail-closed, session start context, format and lint after edits, verification on Stop, the end-of-turn reminders, message language.
 - [Guards](docs/en/guards.md) — the Bash guard and the file guard: how a command is read, rules and verdicts, abbreviated git options, recursive `rm`, protected branches and files.
 - [Profile](docs/en/profile.md) — `.forge/profile.json`: an example, every field with its default, a broken profile, stack detection, what `forge init` writes.
 - [Model routing](docs/en/routing.md) — roles, models by mode, the retry ladder, invariants, overrides, and using other models and providers.

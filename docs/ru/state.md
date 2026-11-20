@@ -20,7 +20,7 @@
 
 ## Файл состояния
 
-`state.json`: `tier` (0–3, по умолчанию 1), `stage`, `mode` (`null` — из профиля), `task.slug`, `artifacts.spec` и `artifacts.plan`, `verify` (`at`, `ok`, `summary`, `failed_step`, `edits_offset`, `notified`), `failures.verify_streak`, `lint_offset`, `docs.offset` (курсор, общий для обоих [напоминаний `Stop`](hooks.md#напоминания-в-конце-хода)), `docs.reminded` ([память напоминаний](agent-docs.md#память-о-напоминаниях)) и `release.reminded` (ключи [напоминания про выпуск](releases.md#напоминание-про-пустой-unreleased): список из не более чем 20 строк). Меняется только через [`forge state`](cli.md#команды) и хуки; повреждённый файл заменяется значениями по умолчанию. `forge state set`, `forge state reset` и `forge mode <режим>` создают его и без профиля.
+`state.json`: `tier` (0–3, по умолчанию 1), `stage`, `mode` (`null` — из профиля), `task.slug`, `artifacts.spec` и `artifacts.plan`, `verify` (`at`, `ok`, `summary`, `failed_step`, `edits_offset`, `notified`), `failures.verify_streak`, `lint_offset`, `docs.offset` (курсор, общий для обоих [напоминаний `Stop`](hooks.md#напоминания-в-конце-хода)), `docs.reminded` ([память напоминаний](agent-docs.md#память-о-напоминаниях)) и `release.reminded` (ключи [напоминания про выпуск](releases.md#напоминание-про-пустой-unreleased): список из не более чем 20 строк) и `lang` (`en` или `ru`: язык вашего последнего сообщения, который хук `Stop` запоминает в проекте с профилем, чтобы CLI, у которого нет транскрипта, [отвечал на нём](hooks.md#язык-сообщений)). Меняется только через [`forge state`](cli.md#команды) и хуки; повреждённый файл заменяется значениями по умолчанию. `forge state set`, `forge state reset` и `forge mode <режим>` создают его и без профиля.
 
 ## Журнал правок
 

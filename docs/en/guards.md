@@ -6,7 +6,7 @@
 
 Two [`PreToolUse` hooks](hooks.md#hook-table) stop risky actions before they run: the Bash guard and the file guard. Both work without a profile, with built-in defaults.
 
-When an action is allowed, the guard hooks print nothing, and Claude Code's normal permissions apply. `deny` rejects the call and passes the reason to Claude; `ask` asks the user to confirm. Reasons are in Russian and start with `forge:`, for example:
+When an action is allowed, the guard hooks print nothing, and Claude Code's normal permissions apply. `deny` rejects the call and passes the reason to Claude; `ask` asks the user to confirm. Reasons start with `forge:` and come in the [message language](hooks.md#message-language); the examples on this page are the Russian ones:
 
 ```
 forge: git push --force запрещён. Для своей ветки используй --force-with-lease.

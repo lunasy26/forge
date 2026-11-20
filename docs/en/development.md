@@ -26,9 +26,11 @@ The plugin layout follows the Claude Code [plugins reference](https://code.claud
 ## Running tests
 
 ```bash
-npm test                              # node --test test/*.test.mjs (unquoted: the shell expands the glob, Node 20 can't)
-node --test test/guards.test.mjs      # one file
+npm test                              # FORGE_LANG=ru node --test test/*.test.mjs (unquoted: the shell expands the glob, Node 20 can't)
+node --test test/guards.test.mjs      # one file (without FORGE_LANG: English; the tests of the Russian messages need FORGE_LANG=ru)
 ```
+
+`npm test` runs with `FORGE_LANG=ru`, so most tests assert the Russian messages. The English ones live in `test/*-en.test.mjs` (`cli-en`, `core-en`, `guards-en`, `hooks-en`) and pin the language themselves. Language resolution and the catalog parity test are in `test/i18n.test.mjs`.
 
 ## Testing hooks
 
@@ -36,9 +38,20 @@ node --test test/guards.test.mjs      # one file
 
 ## Adding a guard rule
 
-1. Logic goes to `lib/guards.mjs` (`checkPush`, `checkCommit`, `checkGit`, `checkRm`, or a new branch by command name in `checkBash`); the verdict is `deny(…)` or `ask(…)` with a reason in Russian starting with `forge:`. Command parsing lives in `lib/shell.mjs`.
+1. Logic goes to `lib/guards.mjs` (`checkPush`, `checkCommit`, `checkGit`, `checkRm`, or a new branch by command name in `checkBash`); the verdict is `deny(…)` or `ask(…)` with a reason starting with `forge:`, written in both languages (see [Adding a message](#adding-a-message)). Command parsing lives in `lib/shell.mjs`.
 2. Tests go to `test/guards.test.mjs`: the forbidden spellings and similar allowed ones; parsing changes also go to `test/glob-shell.test.mjs`.
 3. Update the [rules table](guards.md#guard-rules) here and in [its Russian counterpart](../ru/guards.md#правила-охраны), and add an entry to `CHANGELOG.md`.
+
+## Adding a message
+
+Everything the user sees goes through a catalog; no user-facing string is written inline in code.
+
+1. In the module, next to the code that uses it, there is a catalog: `const MSG = defineCatalog({ en: { … }, ru: { … } })` (`defineCatalog` from `lib/i18n.mjs`). Add the key to both languages. A message is a string with `{name}` placeholders or, when it has to build text (plurals, lists), a function of the parameters.
+2. Use it as `t(MSG, 'key', { name: value })`. The catalog falls back to English for a missing key, but a key absent from `en` throws.
+3. Render lazily: call `t` where the message is produced, not at module load, because the language is chosen at runtime by `initLang` (in each hook and in the CLI). Don't keep ready-made strings in top-level constants.
+4. `test/i18n.test.mjs` imports every module in `lib/` and checks that each registered catalog has the same keys, value types and `{placeholders}` in `en` and `ru`; a missing translation fails `npm test`.
+5. Tests of the message text: Russian in the usual files (`npm test` runs with `FORGE_LANG=ru`), English in `test/*-en.test.mjs`.
+6. Logs, code comments, skills and agents stay in English and are not translated.
 
 ## Adding a role
 
