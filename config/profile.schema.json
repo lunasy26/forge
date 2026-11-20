@@ -77,6 +77,35 @@
         "watch": { "type": "array", "items": { "type": "string" }, "description": "Добавляются к встроенным (package.json, pyproject.toml, Cargo.toml, *.sln, Makefile, justfile, Taskfile.yml, docker-compose*.yml, compose*.yml, .github/workflows/**, .gitlab-ci.yml). Изменение такого файла вызывает напоминание. Синтаксис как в .gitignore; !pattern снимает." }
       }
     },
+    "release": {
+      "type": "object",
+      "description": "Журнал изменений и версии (CHANGELOG, SemVer). Без этого раздела функция выключена: напоминаний нет, forge release сообщит, что не настроен. Пустой объект {} включает её со значениями по умолчанию.",
+      "additionalProperties": false,
+      "properties": {
+        "changelog": { "type": "string", "minLength": 1, "description": "Путь к файлу журнала изменений. По умолчанию CHANGELOG.md." },
+        "tag_prefix": { "type": "string", "description": "Префикс git-тега версии. По умолчанию v (тег v1.2.3)." },
+        "version_files": {
+          "type": "array",
+          "description": "Файлы, где записана версия. По умолчанию пусто: версия живёт только в git-теге.",
+          "items": {
+            "oneOf": [
+              { "type": "string", "minLength": 1, "description": "Путь к файлу; версию в нём находит встроенный обработчик по типу файла." },
+              {
+                "type": "object",
+                "required": ["path", "pattern"],
+                "additionalProperties": false,
+                "properties": {
+                  "path": { "type": "string", "minLength": 1, "description": "Путь к файлу." },
+                  "pattern": { "type": "string", "minLength": 1, "description": "Регулярное выражение ровно с одной группой захвата: в ней стоит версия." }
+                }
+              }
+            ]
+          }
+        },
+        "remind": { "type": "boolean", "description": "Напоминать в конце хода внести запись в журнал изменений, если правки её требуют. По умолчанию true." },
+        "ignore": { "type": "array", "items": { "type": "string" }, "description": "Добавляются к встроенным (test/**, tests/**, **/__tests__/**, **/*.test.*, **/*.spec.*, docs/**, *.md, **/*.md, .forge/**). Правки в таких файлах записи в журнале не требуют. Синтаксис как в .gitignore; !pattern снимает." }
+      }
+    },
     "tdd": { "enum": ["off", "encouraged", "required"], "description": "Отношение к TDD. Хуки его не применяют; при required forge:plan ставит тестовые задачи перед реализацией, forge:execute передаёт значение ролям." },
     "mode": { "enum": ["eco", "normal", "max"], "description": "Режим по умолчанию; forge mode переопределяет его в состоянии." },
     "routing": {
