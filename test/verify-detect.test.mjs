@@ -1,10 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { buildCommand, runSteps, summarize } from '../lib/verify.mjs';
-import { detectProfile } from '../lib/detect.mjs';
+import { detectProfile, detectRelease } from '../lib/detect.mjs';
 import { defaultProfile } from '../lib/profile.mjs';
 import { trimOutput } from '../lib/util.mjs';
-import { tempDir, write } from './helpers.mjs';
+import { git, gitRepo, tempDir, write } from './helpers.mjs';
 
 test('buildCommand: {files} substitution, quoting and extension filter', () => {
   assert.equal(buildCommand('npm test', []), 'npm test');
@@ -93,4 +93,84 @@ test('detect: SwiftPM turns verification on stop off; unknown stack is reported'
   const empty = detectProfile(tempDir());
   assert.equal(empty.stack, 'unknown');
   assert.deepEqual(empty.profile.verify.steps, []);
+});
+
+const BADGE = { path: 'README.md', pattern: 'version-(\\d+\\.\\d+\\.\\d+)-' };
+
+test('detect release: forge-like project (CHANGELOG, v* tags, three version files)', () => {
+  const dir = gitRepo();
+  write(dir, 'CHANGELOG.md', '# Changelog\n');
+  write(dir, 'package.json', { name: 'forge', version: '0.3.0' });
+  write(dir, '.claude-plugin/plugin.json', { name: 'forge', version: '0.3.0' });
+  write(dir, 'README.md', '[![version](https://img.shields.io/badge/version-0.3.0-blue)](CHANGELOG.md)\n');
+  git(dir, 'tag', 'v0.2.0');
+  git(dir, 'tag', 'v0.3.0');
+  const { release, notes } = detectRelease(dir);
+  assert.deepEqual(release, { changelog: 'CHANGELOG.md', tag_prefix: 'v', version_files: ['package.json', '.claude-plugin/plugin.json', BADGE] });
+  assert.ok(notes.some((n) => /найден CHANGELOG\.md/.test(n)));
+  assert.ok(notes.some((n) => /теги версий \(v0\.3\.0\)/.test(n)));
+  assert.deepEqual(detectProfile(dir).profile.release, release);
+  assert.ok(detectProfile(dir).notes.some((n) => /CHANGELOG\.md/.test(n)));
+});
+
+test('detect release: service-like project (0.0.0 only in a subdir, CI publishes images on dispatch)', () => {
+  const dir = gitRepo();
+  write(dir, 'CHANGELOG.md', '# Changelog\n');
+  write(dir, 'web/package.json', { name: 'web', version: '0.0.0' });
+  write(dir, 'package.json', { name: 'root', version: '0.0.0', private: true });
+  write(dir, '.github/workflows/images.yml', `name: images
+on:
+  # push:
+  #   tags: ['v*']
+  workflow_dispatch:
+    inputs:
+      ref:
+        description: ref
+      publish:
+        description: push images
+        type: boolean
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - run: docker build -t app .
+      - run: docker push app
+`);
+  git(dir, 'tag', 'v1.0.0');
+  const { release, notes } = detectRelease(dir);
+  assert.deepEqual(release, { changelog: 'CHANGELOG.md', tag_prefix: 'v', version_files: [] });
+  assert.ok(notes.some((n) => /CI публикует образы \(docker push\)/.test(n)));
+  assert.ok(notes.some((n) => /параметром publish/.test(n)));
+  assert.ok(!notes.some((n) => /по тегам/.test(n)), 'commented-out trigger is ignored');
+});
+
+test('detect release: a plain project has no release signals', () => {
+  const dir = gitRepo();
+  write(dir, 'package.json', { name: 'plain', version: '1.2.3', scripts: { test: 'node --test' } });
+  write(dir, 'README.md', 'version-1.2.3-blue\n');
+  write(dir, '.github/workflows/ci.yml', 'on:\n  push:\n    branches: [main]\n  workflow_dispatch:\n    inputs:\n      verbose:\n        type: boolean\njobs:\n  t:\n    steps:\n      - run: npm test\n');
+  git(dir, 'tag', 'nightly');
+  assert.deepEqual(detectRelease(dir), { release: null, notes: [] });
+  assert.equal('release' in detectProfile(dir).profile, false);
+  assert.deepEqual(detectRelease(tempDir()), { release: null, notes: [] });
+});
+
+test('detect release: CI npm publish alone turns it on; unprefixed tags give an empty prefix', () => {
+  const dir = tempDir();
+  write(dir, '.github/workflows/publish.yml', 'on: push\njobs:\n  p:\n    steps:\n      - run: npm publish\n');
+  const a = detectRelease(dir);
+  assert.deepEqual(a.release, { changelog: 'CHANGELOG.md', tag_prefix: 'v', version_files: [] });
+  assert.deepEqual(a.notes, ['Релизы включены: CI публикует пакеты (npm publish).']);
+
+  const repo = gitRepo();
+  write(repo, 'pom.xml', '<project><parent><version>9.0.0</version></parent><version>3.1.0</version></project>');
+  write(repo, 'ci/x.csproj', '<Project><Version>1.0.0</Version></Project>');
+  write(repo, 'app.csproj', '<Project><PropertyGroup><Version>1.0.0</Version></PropertyGroup></Project>');
+  write(repo, '.github/workflows/rel.yml', 'on:\n  push:\n    tags:\n      - "*"\njobs: {}\n');
+  git(repo, 'tag', '1.0.0');
+  git(repo, 'tag', '1.1.0');
+  const b = detectRelease(repo);
+  assert.equal(b.release.tag_prefix, '');
+  assert.deepEqual(b.release.version_files, ['pom.xml', 'app.csproj']);
+  assert.ok(b.notes.some((n) => /по тегам \(push: tags\)/.test(n)));
 });
