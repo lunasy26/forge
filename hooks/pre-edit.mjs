@@ -1,19 +1,44 @@
 // PreToolUse(Edit|Write|MultiEdit|NotebookEdit): protected files.
-import { checkFile } from '../lib/guards.mjs';
-import { loadProfile } from '../lib/profile.mjs';
-import { runHook } from '../lib/util.mjs';
+// Unlike the other hooks this one fails closed: if the guard itself breaks (a module that does not
+// load, the project root, the check), the user is asked. Only unreadable input passes silently.
+const BROKEN = 'forge: внутренняя ошибка проверки защищённых файлов (подробности в журнале ошибок forge) — не могу убедиться, что правка разрешена. Подтверди.';
 
-runHook('pre-edit', async (input, root) => {
-  const file = input.tool_input?.file_path || input.tool_input?.notebook_path;
-  if (typeof file !== 'string' || !file) return null;
+let input = null;
+try {
+  const chunks = [];
+  if (!process.stdin.isTTY) for await (const chunk of process.stdin) chunks.push(chunk);
+  const text = Buffer.concat(chunks).toString('utf8').trim();
+  input = text ? JSON.parse(text) : {};
+} catch {
+  process.exit(0); // no file to guard
+}
+const file = input?.tool_input?.file_path || input?.tool_input?.notebook_path;
+if (typeof file !== 'string' || !file) process.exit(0);
+
+let root = null;
+let verdict;
+try {
+  const [{ checkFile }, { loadProfile }, { projectRoot }] = await Promise.all([
+    import('../lib/guards.mjs'),
+    import('../lib/profile.mjs'),
+    import('../lib/paths.mjs'),
+  ]);
+  root = projectRoot(input.cwd);
   const { profile } = loadProfile(root);
-  const verdict = checkFile(file, { root, protectedFiles: profile.protected_files });
-  if (verdict.decision === 'allow') return null;
-  return {
-    hookSpecificOutput: {
-      hookEventName: 'PreToolUse',
-      permissionDecision: verdict.decision,
-      permissionDecisionReason: verdict.reason,
-    },
-  };
-});
+  verdict = checkFile(file, { root, protectedFiles: profile.protected_files });
+} catch (err) {
+  try {
+    (await import('../lib/util.mjs')).logError(root, 'pre-edit', err);
+  } catch {
+    // logging must not turn the ask into a crash
+  }
+  verdict = { decision: 'ask', reason: BROKEN };
+}
+if (verdict.decision !== 'allow') {
+  process.stdout.write(
+    JSON.stringify({
+      hookSpecificOutput: { hookEventName: 'PreToolUse', permissionDecision: verdict.decision, permissionDecisionReason: verdict.reason },
+    }),
+  );
+}
+process.exit(0);

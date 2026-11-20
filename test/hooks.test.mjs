@@ -2,7 +2,8 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { emptyConfigDir, gitRepo, runHookScript, tempDir, write, writeProfile } from './helpers.mjs';
+import { pathToFileURL } from 'node:url';
+import { emptyConfigDir, gitRepo, PLUGIN_ROOT, runHookScript, tempDir, write, writeProfile } from './helpers.mjs';
 
 /** A project whose "test" step passes or fails depending on the content of status.txt. */
 function projectWithCheck({ on_stop = 'full', lint = false } = {}) {
@@ -80,6 +81,47 @@ test('pre-edit: protected file denied, profile can unprotect', () => {
   assert.equal(allowed.stdout, '');
 });
 
+test('guard hooks fail closed: an error inside the guard asks instead of allowing', () => {
+  const repo = gitRepo('main');
+  const throwing = { NODE_OPTIONS: `--import=${pathToFileURL(join(PLUGIN_ROOT, 'test', 'throwing-guards.mjs')).href}` };
+  const bash = runHookScript('pre-bash', { cwd: repo, tool_name: 'Bash', tool_input: { command: 'ls' } }, { projectDir: repo, env: throwing });
+  assert.equal(bash.code, 0);
+  assert.equal(bash.json?.hookSpecificOutput.permissionDecision, 'ask');
+  assert.match(bash.json.hookSpecificOutput.permissionDecisionReason, /forge/);
+  const edit = runHookScript('pre-edit', { cwd: repo, tool_name: 'Edit', tool_input: { file_path: join(repo, 'a.txt') } }, { projectDir: repo, env: throwing });
+  assert.equal(edit.json?.hookSpecificOutput.permissionDecision, 'ask');
+
+  // a real failure: an invalid protected_files glob makes the matcher throw
+  writeProfile(repo, { protected_files: ['{*}'] });
+  const glob = runHookScript('pre-edit', { cwd: repo, tool_name: 'Edit', tool_input: { file_path: join(repo, 'a.txt') } }, { projectDir: repo });
+  assert.equal(glob.json?.hookSpecificOutput.permissionDecision, 'ask');
+});
+
+test('guard hooks fail closed when a module fails to load or the project root cannot be resolved', () => {
+  const repo = gitRepo('main');
+  const seam = `--import=${pathToFileURL(join(PLUGIN_ROOT, 'test', 'throwing-guards.mjs')).href}`;
+  for (const mod of ['guards', 'profile', 'paths']) {
+    const env = { NODE_OPTIONS: seam, FORGE_TEST_BROKEN_MODULE: mod };
+    const bash = runHookScript('pre-bash', { cwd: repo, tool_name: 'Bash', tool_input: { command: 'ls' } }, { projectDir: repo, env });
+    assert.equal(bash.code, 0, mod);
+    assert.equal(bash.json?.hookSpecificOutput.permissionDecision, 'ask', `pre-bash, broken ${mod}`);
+    const edit = runHookScript('pre-edit', { cwd: repo, tool_name: 'Edit', tool_input: { file_path: join(repo, 'a.txt') } }, { projectDir: repo, env });
+    assert.equal(edit.json?.hookSpecificOutput.permissionDecision, 'ask', `pre-edit, broken ${mod}`);
+  }
+});
+
+test('pre-bash: pathological nesting before a protected push asks, never allows', () => {
+  const repo = gitRepo('main');
+  for (const command of [
+    'echo ' + '$('.repeat(3000) + 'x' + ')'.repeat(3000) + '; git push --force origin main',
+    'echo ' + '$(( '.repeat(26) + 'x' + ' ) )'.repeat(26) + '; git push --force origin main',
+  ]) {
+    const r = runHookScript('pre-bash', { cwd: repo, tool_name: 'Bash', tool_input: { command } }, { projectDir: repo });
+    assert.ok(['ask', 'deny'].includes(r.json?.hookSpecificOutput.permissionDecision), command.slice(0, 30));
+    assert.ok(r.ms < 5000, `${r.ms} ms`);
+  }
+});
+
 test('hooks fail open on garbage input', () => {
   const repo = gitRepo();
   const r = runHookScript('pre-bash', 'not an object', { projectDir: repo });
@@ -146,8 +188,9 @@ test('post-batch: lints files edited since the last batch, once', () => {
 
   edit(dir, 'bad.ts', 'BAD code');
   const r = runHookScript('post-batch', { cwd: dir }, { projectDir: dir });
-  assert.equal(r.json.decision, 'block');
-  assert.match(r.json.reason, /bad\.ts: BAD found/);
+  assert.equal(r.json.decision, undefined, 'must not stop the loop');
+  assert.equal(r.json.hookSpecificOutput.hookEventName, 'PostToolBatch');
+  assert.match(r.json.hookSpecificOutput.additionalContext, /bad\.ts: BAD found/);
   assert.equal(runHookScript('post-batch', { cwd: dir }, { projectDir: dir }).stdout, '', 'cursor advanced');
 });
 

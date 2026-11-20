@@ -21,8 +21,12 @@ runHook('post-batch', async (_input, root) => {
   if (!files.length) return null;
   const result = runSteps(root, profile, steps, { files, timeoutSec: 150 });
   if (result.ok) return null;
+  // decision:'block' on PostToolBatch stops the loop before the next model call and shows the reason as a
+  // warning, so lint errors would not be acted on in this turn; additionalContext reaches the model now.
   return {
-    decision: 'block',
-    reason: `forge: после правок ${failureReport(result, 40)}\n\nИсправь это до следующих шагов.`,
+    hookSpecificOutput: {
+      hookEventName: 'PostToolBatch',
+      additionalContext: `forge: после правок ${failureReport(result, 40)}\n\nИсправь это до следующих шагов.`,
+    },
   };
 });

@@ -52,6 +52,16 @@ test('force push: denied unless --force-with-lease to an unprotected branch', ()
   assert.equal(decide('git push origin +feature/x'), 'deny');
   assert.equal(decide('git push --force-with-lease origin feature/x'), 'allow');
   assert.equal(decide('git push --force-with-lease origin main'), 'deny');
+  assert.equal(decide('git push --force-if-includes --force-with-lease origin feature'), 'allow');
+});
+
+test('force push: --force or +refspec overrides the lease, so it is denied even with one', () => {
+  assert.equal(decide('git push --force --force-with-lease origin feature'), 'deny');
+  assert.equal(decide('git push --force-with-lease --force origin feature'), 'deny');
+  assert.equal(decide('git push -f --force-with-lease origin feature'), 'deny');
+  assert.equal(decide('git push -fu --force-with-lease origin feature'), 'deny');
+  assert.equal(decide('git push --force-with-lease origin +feature'), 'deny');
+  assert.equal(decide('git push --force-with-lease origin feature'), 'allow');
 });
 
 test('skipping git hooks is denied', () => {
@@ -97,4 +107,282 @@ test('protected files', () => {
   assert.equal(checkFile(join(root, '.env.example'), opts).decision, 'allow');
   assert.equal(checkFile(join(root, 'src/index.ts'), opts).decision, 'allow');
   assert.equal(checkFile('/Users/someone/.ssh/id_ed25519', opts).decision, 'deny');
+});
+
+test('commands inside substitutions are checked like top-level commands', () => {
+  for (const [cmd, want] of [
+    ['echo $(git push --force origin main)', 'deny'],
+    ['echo `git push --force origin main`', 'deny'],
+    ['x=$(git push origin main)', 'deny'],
+    ['echo "$(git push --force origin main)"', 'deny'],
+    ['echo "$(rm -rf /etc/x)"', 'ask'],
+    ['echo $(echo $(git push --force origin main))', 'deny'],
+    ['cat <(git push --force origin main)', 'deny'],
+    ['diff <(git show HEAD) >(git push origin main)', 'deny'],
+    ['echo "${x:-$(git push origin main)}"', 'deny'],
+    ['ls > "$(git commit --no-verify -m x)"', 'deny'],
+    ['cat <<EOF\n$(git push --force origin main)\nEOF', 'deny'],
+    ['bash -c \'echo $(git push origin main)\'', 'deny'],
+    ['echo $(rm -rf /etc/x) && git push origin main', 'deny'],
+    ['echo "$(case $x in a) git push origin main;; esac)"', 'deny'],
+    ['echo "$(true # )\ngit push origin main\n)"', 'deny'],
+  ]) {
+    assert.equal(decide(cmd), want, cmd);
+  }
+  assert.match(checkBash('echo $(git push origin main)', ctx()).reason, /main/);
+  // same verdict as the bare command, whatever it is (/tmp counts as a scratch area)
+  for (const inner of ['rm -rf /tmp/x', 'rm -rf ~', 'git push origin main', 'git status']) {
+    assert.equal(decide(`echo "$(${inner})"`), decide(inner), inner);
+  }
+});
+
+test('substitutions that are literal, harmless or not commands stay allowed', () => {
+  for (const cmd of [
+    "echo '$(git push --force origin main)'",
+    'echo "\\$(git push --force origin main)"',
+    'echo $((1 + 2))',
+    'echo ${HOME}',
+    'echo ${x:-$y}',
+    'echo $(date)',
+    'echo "today: $(date +%F)"',
+    "cat <<'EOF'\n$(git push --force origin main)\nEOF",
+    'cat <<"EOF"\n`git push --force origin main`\nEOF',
+    'cat <<EOF\ngit push --force origin main\nEOF',
+    "git commit -m \"$(cat <<'EOF'\nfix: don't push to main (yet)\nEOF\n)\"",
+    'for f in $(git ls-files); do echo "$f"; done',
+  ]) {
+    assert.equal(decide(cmd), 'allow', cmd);
+  }
+  assert.equal(decide('rm -rf $(pwd)/build'), 'ask', 'the outer word stays dynamic');
+});
+
+test('substitutions that cannot be inspected ask instead of allowing', () => {
+  const unterminated = checkBash('echo $(git status', ctx());
+  assert.equal(unterminated.decision, 'ask');
+  assert.match(unterminated.reason, /подстановк/);
+  const deep = checkBash('echo $(echo $(echo $(echo $(git status))))', ctx());
+  assert.equal(deep.decision, 'ask');
+  assert.match(deep.reason, /вложенност/);
+  assert.equal(decide('echo $(echo $(echo $(git status)))'), 'allow', 'three levels are inspected');
+  assert.equal(decide('bash -c "bash -c \\"bash -c \\\\\\"bash -c ls\\\\\\"\\""'), 'ask', 'bash -c past the limit asks too');
+});
+
+const P = 'git push --force origin main';
+/** checkBash with a wall-clock measurement: pathological input must stay well under the 10 s hook timeout. */
+const timed = (cmd) => {
+  const started = performance.now();
+  const { decision } = checkBash(cmd, ctx());
+  return { decision, ms: performance.now() - started };
+};
+
+test('ANSI-C quotes $\'…\' escape their own quote and are decoded', () => {
+  for (const [cmd, want] of [
+    [`echo $'it\\'s' && ${P}`, 'deny'],
+    [`echo $'\\'' "$(${P})"`, 'deny'],
+    [`$'git' push --force origin main`, 'deny'],
+    [`$'git' $'push' $'--force' origin feature/x`, 'deny'],
+    [`echo "\${x:-$'}'}" $(${P})`, 'deny'],
+    [`echo $(echo $'a\\'b')`, 'allow'],
+    [`echo $'a\\tb\\n' "$'x'"`, 'allow'],
+    [`echo "\${x:-$'}'}"`, 'allow'],
+  ]) {
+    assert.equal(decide(cmd), want, cmd);
+  }
+});
+
+test('backslash-newline is removed before substitutions and heredoc delimiters are read', () => {
+  for (const [cmd, want] of [
+    [`echo "$\\\n(${P})"`, 'deny'],
+    [`echo $\\\n(${P})`, 'deny'],
+    [`cat <<EOF\n$\\\n(${P})\nEOF`, 'deny'],
+    [`cat <<\\\nEOF\n$(${P})\nEOF`, 'deny'],
+    [`cat <<E\\\nOF\n$(${P})\nEOF`, 'deny'],
+    [`x="$\\\n(rm -rf ~)"`, 'ask'],
+    [`echo "$(c\\\nase x in a) ${P};; esac)"`, 'deny'],
+    // where bash does not join lines, neither may the guard
+    [`echo a # note \\\n${P}`, 'deny'],
+    [`echo a\\\\\n${P}`, 'deny'],
+    [`cat <<'EOF'\nfoo\\\nEOF\n${P}\nEOF`, 'deny'],
+    [`cat <<EOF\nfoo\\\nEOF\nit's\nEOF\n${P}\n'`, 'deny'],
+    [`git push \\\n--force origin feature/x`, 'deny'],
+    [`echo 'a\\\nb' && echo ok`, 'allow'],
+  ]) {
+    assert.equal(decide(cmd), want, JSON.stringify(cmd));
+  }
+});
+
+test('heredocs: tab-indented terminator only for <<-, several heredocs on one line', () => {
+  for (const [cmd, want] of [
+    [`cat <<EOF\n\tEOF\nit's\nEOF\n${P}`, 'deny'],
+    [`cat <<EOF\n\tEOF\nit's\nEOF\necho $(${P})`, 'deny'],
+    [`cat <<-EOF\n\t${P}\n\tEOF\necho ok`, 'allow'],
+    [`cat <<-EOF\n\t$(${P})\n\tEOF`, 'deny'],
+    [`cat <<A <<'B'\n$(${P})\nA\nx\nB`, 'deny'],
+    [`cat <<'A' <<B\nx\nA\n$(${P})\nB`, 'deny'],
+    [`cat <<'A' <<'B'\n$(${P})\nA\n$(${P})\nB\necho ok`, 'allow'],
+    [`cat <<A <<B\nit's\nA\nB\n${P}`, 'deny'],
+  ]) {
+    assert.equal(decide(cmd), want, JSON.stringify(cmd));
+  }
+});
+
+test('arithmetic: no heredocs inside ((…)), single quotes do not protect, $((…)) stays allowed', () => {
+  for (const [cmd, want] of [
+    [`((x = 1 << 2))\n${P}\n`, 'deny'],
+    [`for ((i=0; i<1<<2; i++)); do :; done\n${P}`, 'deny'],
+    [`echo $(( '$(${P})' ))`, 'deny'],
+    [`echo $((x<<2))\n${P}`, 'deny'],
+    [`((x = $(${P})))`, 'deny'],
+    ['echo $((1+2))', 'allow'],
+    ['echo $((x<<2))', 'allow'],
+    ['((x = 1 << 2)) && echo ok', 'allow'],
+    ['for ((i=0; i<1<<2; i++)); do echo $i; done', 'allow'],
+    [`((cd /; ${P}) )`, 'deny'],
+  ]) {
+    assert.equal(decide(cmd), want, JSON.stringify(cmd));
+  }
+});
+
+test('case/esac count only at command position', () => {
+  for (const cmd of [
+    'x=$(grep -c case README.md)',
+    'echo $(git log --grep case -1)',
+    'echo "$(echo case x)" && echo ok',
+    'echo $(for w in case esac; do echo $w; done)',
+    'echo $(echo a; case x in x) echo b;; esac)',
+    'echo $(if true; then case x in x) echo c;; esac; fi)',
+    'echo "$(case $x in a) echo a;; (b) echo b;; esac)"',
+  ]) {
+    assert.equal(decide(cmd), 'allow', cmd);
+  }
+  assert.equal(decide(`echo "$(echo a; case x in a) ${P};; esac)"`), 'deny');
+  assert.equal(decide(`echo "$({ case x in a) ${P};; esac; })"`), 'deny');
+  assert.equal(decide(`echo "$(case x in a|esac) ${P};; esac)"`), 'deny', 'esac after | is a pattern');
+});
+
+test('eval and shell -c option clusters are inspected like bash -c', () => {
+  for (const cmd of [
+    `eval "${P}"`,
+    `eval ${P}`,
+    `eval 'echo "$(${P})"'`,
+    `bash -c -- '${P}'`,
+    `bash -cx '${P}'`,
+    `bash -xc '${P}'`,
+    `sh -ec '${P}'`,
+    `bash -lc '${P}'`,
+    `bash -o pipefail -c '${P}'`,
+    `bash -c -x '${P}'`,
+    `/bin/zsh -c '${P}'`,
+  ]) {
+    assert.equal(decide(cmd), 'deny', cmd);
+  }
+  assert.equal(decide('eval "echo ok"'), 'allow');
+  assert.equal(decide("bash -xc 'npm test'"), 'allow');
+});
+
+test('git long options are matched by unambiguous prefix, like git does', () => {
+  for (const cmd of [
+    'git push --forc origin feature/x',
+    'git push --for origin feature/x',
+    'git push --no-verif origin feature/x',
+    'git push --mirro origin',
+    'git push --dele origin main',
+    'git push --force-with --forc origin feature/x',
+    'git commit --no-verif -m x',
+  ]) {
+    assert.equal(decide(cmd), 'deny', cmd);
+  }
+  assert.equal(decide('git push --al'), 'ask', 'any prefix counts, git rejects ambiguous ones itself');
+  assert.equal(decide('git push --bra'), 'ask');
+  assert.equal(decide('git reset --har HEAD~1'), 'ask');
+  assert.equal(decide('git push --force-with origin feature/x'), 'allow', 'prefix of --force-with-lease');
+  assert.equal(decide('git push --force-if-incl --force-with-lease origin feature/x'), 'allow');
+  assert.equal(decide('git push --follow-tags origin feature/x'), 'allow');
+  assert.equal(decide('git commit --no-edit --amend'), 'allow');
+});
+
+test('pathological nesting asks quickly instead of overflowing the stack or timing out', () => {
+  for (const cmd of [
+    'echo ' + '$('.repeat(3000) + 'x' + ')'.repeat(3000) + '; ' + P,
+    'echo ' + '"$('.repeat(3000) + ')"'.repeat(3000) + '; ' + P,
+    'echo ' + '${x:-'.repeat(10000) + '}'.repeat(10000) + '; ' + P,
+    'echo ' + '$(( '.repeat(26) + 'x' + ' ) )'.repeat(26) + '; ' + P,
+    'echo ' + '$((a) '.repeat(24) + ')'.repeat(24) + '; ' + P,
+    '(('.repeat(5000) + 'x' + '))'.repeat(5000) + '\n' + P,
+    'echo ' + '`'.repeat(9) + P,
+  ]) {
+    const { decision, ms } = timed(cmd);
+    assert.ok(decision === 'ask' || decision === 'deny', `${decision} for ${cmd.slice(0, 40)}`);
+    assert.ok(ms < 1000, `${ms.toFixed(0)} ms for ${cmd.slice(0, 40)}`);
+  }
+  const { decision, ms } = timed('echo ' + '$('.repeat(60) + 'git status' + ')'.repeat(60));
+  assert.equal(decision, 'ask', 'deep but finite nesting still asks (depth limit)');
+  assert.ok(ms < 1000);
+});
+
+test('case: patterns, function bodies, time -p and coproc keep the case tracking right', () => {
+  for (const cmd of [
+    `echo "$(f() { case x in x) ${P};; esac; }; f)"`,
+    `echo "$(function f { case x in x) ${P};; esac; }; f)"`,
+    `echo "$(function f() { case x in x) ${P};; esac; }; f)"`,
+    `echo "$(time -p case x in x) ${P};; esac)"`,
+    `echo "$(coproc case x in x) ${P};; esac)"`,
+    `echo "$(coproc w { case x in x) ${P};; esac; })"`,
+    `echo "$(case x in (esac) ;; x) ${P};; esac)"`,
+    `echo "$(case x in a) ;; case) ;; esac)" ; ${P} ; echo "; esac)"`,
+    `echo "$(case x in a) ;;\ncase) ;; esac)" ; ${P} ; echo "; esac)"`,
+    `echo "$(case x in (case) ;; esac)" ; ${P} ; echo "; esac)"`,
+    `echo "$(case x in a) ;; in) ;; x) ${P};; esac)"`,
+    `echo "$(case x in x) ${P} ;& esac)"`,
+    `echo "$(case x in a) echo ;;& x) ${P};; esac)"`,
+  ]) {
+    assert.equal(decide(cmd), 'deny', cmd);
+  }
+  for (const cmd of [
+    'x=$(case $1 in -h|--help) echo help;; esac)',
+    'x=$(f() { echo hi; }; f)',
+    'x=$(time -p ls)',
+    'echo "$(case $x in (a|b) echo ab;; (*) echo other;; esac)"',
+    'echo "$(case $x in\n  a) echo a ;;\n  b|c) echo bc ;;\n  *) echo d ;;\nesac)"',
+    'x=$(echo | case "$y" in a) echo 1;; esac)',
+    'x=$(git log --format=%s | while read l; do case $l in feat*) echo $l;; esac; done)',
+    'x=$(case $y in +(a|b)) echo ext;; esac)',
+  ]) {
+    assert.equal(decide(cmd), 'allow', cmd);
+  }
+});
+
+test('heredoc terminator followed by ")" ends the body inside $(…)', () => {
+  for (const cmd of [
+    `echo "$(cat <<EOF\nEOF)" ; ${P} ; echo "\nEOF\n)"`,
+    `echo "$(cat <<'EOF'\nEOF)" ; ${P} ; echo "\nEOF\n)"`,
+    `x=$(cat <<EOF\nEOF)\n${P}\nEOF\n)`,
+  ]) {
+    assert.equal(decide(cmd), 'deny', JSON.stringify(cmd));
+  }
+  // bash versions disagree on these terminators: never allow
+  for (const cmd of [
+    `x=$(cat <<EOF\nfoo\\\nEOF\n)\n${P}\nEOF\n)`,
+    `echo "$(cat <<EOF\nEOFx)" ; ${P} ; echo "\nEOF\n)"`,
+  ]) {
+    assert.notEqual(decide(cmd), 'allow', JSON.stringify(cmd));
+  }
+  for (const cmd of [
+    `git commit -m "$(cat <<'EOF'\nmsg\nEOF\n)"`,
+    `echo "[$(cat <<EOF\nab\nEOF)]"`,
+    `x=$(cat <<EOF\ncmd \\\n  --flag\nEOF\n)`,
+    `x=$(cat <<-EOF\n\tindented\n\tEOF\n)`,
+  ]) {
+    assert.equal(decide(cmd), 'allow', JSON.stringify(cmd));
+  }
+});
+
+test('eval -- and short git option prefixes', () => {
+  for (const cmd of [`eval -- '${P}'`, `builtin eval -- '${P}'`, 'git push --mi origin', 'git push --m origin', 'git push --forc origin feature/x', 'git push --dry origin main']) {
+    assert.equal(decide(cmd), 'deny', cmd);
+  }
+  assert.equal(decide('git reset --ha HEAD~1'), 'ask');
+  assert.equal(decide('git push --force-w origin feature/x'), 'allow');
+  assert.equal(decide('git push --force-if --force-with-lease origin feature/x'), 'allow');
+  assert.equal(decide('git push --dry-run origin main'), 'allow');
 });
