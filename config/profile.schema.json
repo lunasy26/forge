@@ -108,6 +108,7 @@
     },
     "tdd": { "enum": ["off", "encouraged", "required"], "description": "Отношение к TDD. Хуки его не применяют; при required forge:plan ставит тестовые задачи перед реализацией, forge:execute передаёт значение ролям." },
     "mode": { "enum": ["eco", "normal", "max"], "description": "Режим по умолчанию; forge mode переопределяет его в состоянии." },
+    "language": { "enum": ["auto", "en", "ru"], "default": "auto", "description": "Язык сообщений forge. auto — по языку, на котором пользователь пишет в сессии (откат: английский); en или ru — всегда этот язык. Переменная окружения FORGE_LANG важнее." },
     "routing": {
       "type": "object",
       "description": "Переопределения таблицы моделей: { режим: { роль: \"model/effort\" } }.",
