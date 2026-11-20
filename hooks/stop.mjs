@@ -5,7 +5,7 @@ import { docsReminder } from '../lib/docs.mjs';
 import { editsSize, filesSince, maybeRotate } from '../lib/edits.mjs';
 import { loadProfile } from '../lib/profile.mjs';
 import { loadState, updateState } from '../lib/state.mjs';
-import { runHook } from '../lib/util.mjs';
+import { logError, runHook } from '../lib/util.mjs';
 import { failureReport } from '../lib/verify.mjs';
 
 /** After this many consecutive failures the hook stops blocking and tells the user instead. */
@@ -55,17 +55,21 @@ function verifyOnStop(input, root, profile) {
   };
 }
 
+const isObject = (v) => v !== null && typeof v === 'object' && !Array.isArray(v);
+
 /**
  * Agent-docs reminder over the edits since state.docs.offset; the cursor always moves to the end of the log.
- * No cursor yet (first stop after an update) → only set it. A cursor past the end (log truncated) → read from 0.
+ * No cursor yet (first stop after an update) → only set it. A cursor past the end (log truncated) or negative
+ * → read from 0. What was reminded is remembered in state.docs.reminded (see docsReminder).
  */
 function docsOnStop(root, profile) {
   const state = loadState(root);
   const size = editsSize(root);
-  const offset = state.docs?.offset;
-  const files = Number.isInteger(offset) ? filesSince(root, offset > size ? 0 : offset) : [];
+  const prev = isObject(state.docs) ? state.docs : {};
+  const offset = prev.offset;
+  const files = Number.isInteger(offset) ? filesSince(root, offset < 0 || offset > size ? 0 : offset) : [];
   const next = updateState(root, (s) => {
-    s.docs = { ...(s.docs && typeof s.docs === 'object' && !Array.isArray(s.docs) ? s.docs : {}), offset: size };
+    s.docs = { ...(isObject(s.docs) ? s.docs : {}), offset: size };
   });
   if (maybeRotate(root, [next.verify?.edits_offset, next.lint_offset, next.docs.offset])) {
     updateState(root, (s) => {
@@ -74,7 +78,30 @@ function docsOnStop(root, profile) {
       s.docs.offset = 0;
     });
   }
-  return docsReminder(root, profile, files);
+  if (!files.length) return null;
+  const { reason, reminded } = docsReminder(root, profile, files, prev.reminded);
+  const keep = Object.keys(reminded.scripts).length || reminded.dirs.length ? reminded : undefined;
+  if (JSON.stringify(keep) !== JSON.stringify(prev.reminded)) {
+    updateState(root, (s) => {
+      if (keep) s.docs.reminded = keep;
+      else delete s.docs.reminded;
+    });
+  }
+  return reason;
+}
+
+/** docs.remind is off: drop the docs cursor so a stale one never holds the log's rotation. */
+function dropDocsCursor(root) {
+  const state = loadState(root);
+  const next = state.docs === undefined ? state : updateState(root, (s) => {
+    delete s.docs;
+  });
+  if (maybeRotate(root, [next.verify?.edits_offset, next.lint_offset])) {
+    updateState(root, (s) => {
+      if (s.verify) s.verify.edits_offset = 0;
+      s.lint_offset = 0;
+    });
+  }
 }
 
 runHook('stop', async (input, root) => {
@@ -95,7 +122,14 @@ runHook('stop', async (input, root) => {
     if (verified?.gaveUp) return { systemMessage: verified.systemMessage };
   }
 
-  const reason = profile.docs.remind !== false ? docsOnStop(root, profile) : null;
+  // The docs part must never cost the verify result: an error is logged and the turn ends as verify decided.
+  let reason = null;
+  try {
+    if (profile.docs.remind !== false) reason = docsOnStop(root, profile);
+    else dropDocsCursor(root);
+  } catch (err) {
+    logError(root, 'stop:docs', err);
+  }
   if (!reason) return verified;
   return { ...verified, decision: 'block', reason };
 });

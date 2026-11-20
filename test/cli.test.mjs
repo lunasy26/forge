@@ -1,6 +1,6 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { git, gitRepo, runCli, write, writeProfile } from './helpers.mjs';
 
@@ -137,10 +137,28 @@ test('doctor: reports the agent files line both when clean and when broken', () 
   writeProfile(dir, {});
   const bad = runCli(['doctor'], { cwd: dir });
   assert.equal(bad.code, 0);
-  assert.match(bad.stdout, /✗ Агентские файлы: 1 замечаний — forge docs/);
+  assert.match(bad.stdout, /✗ Агентские файлы: 1 замечание — forge docs/);
   write(dir, 'AGENTS.md', '# Проект\n');
   write(dir, 'CLAUDE.md', '@AGENTS.md\n');
   assert.match(runCli(['doctor'], { cwd: dir }).stdout, /✓ Агентские файлы в порядке/);
   write(dir, 'AGENTS.md', '# Проект\n[x](nope.md)\n');
-  assert.match(runCli(['doctor'], { cwd: dir }).stdout, /! Агентские файлы: 1 замечаний — forge docs/);
+  assert.match(runCli(['doctor'], { cwd: dir }).stdout, /! Агентские файлы: 1 замечание — forge docs/);
+  write(dir, 'AGENTS.md', '# Проект\n[x](nope.md) [y](nope2.md)\n');
+  assert.match(runCli(['doctor'], { cwd: dir }).stdout, /! Агентские файлы: 2 замечания — forge docs/);
+  write(dir, 'AGENTS.md', '# Проект\n[a](n1.md) [b](n2.md) [c](n3.md) [d](n4.md) [e](n5.md)\n');
+  assert.match(runCli(['doctor'], { cwd: dir }).stdout, /! Агентские файлы: 5 замечаний — forge docs/);
+  write(dir, 'AGENTS.md', `# Проект\n${Array.from({ length: 21 }, (_, i) => `[l${i}](n${i}.md)`).join(' ')}\n`);
+  assert.match(runCli(['doctor'], { cwd: dir }).stdout, /! Агентские файлы: 21 замечание — forge docs/);
+});
+
+test('docs: --fix says why it skipped a fixable issue', { skip: process.platform === 'win32' }, () => {
+  const dir = gitRepo();
+  write(dir, 'AGENTS.md', '# Проект\n');
+  symlinkSync('nowhere.md', join(dir, 'CLAUDE.md'));
+  const r = runCli(['docs', '--fix'], { cwd: dir });
+  assert.equal(r.code, 1);
+  assert.match(r.stdout, /пропущен CLAUDE\.md: .*уже существует/);
+  const json = runCli(['docs', '--fix', '--json'], { cwd: dir });
+  assert.ok(Array.isArray(JSON.parse(json.stdout)), 'json output stays parseable');
+  assert.match(json.stderr, /пропущен CLAUDE\.md/);
 });

@@ -1,11 +1,11 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { readFileSync, rmSync } from 'node:fs';
+import { chmodSync, readFileSync, rmSync, symlinkSync } from 'node:fs';
 import { join } from 'node:path';
 import {
   DEFAULT_DOCS_WATCH, checkDocs, findAgentFiles, fixDocs, hasImport, isShim, rootDocStatus,
 } from '../lib/docs.mjs';
-import { defaultProfile, loadProfile, validateProfile } from '../lib/profile.mjs';
+import { DEFAULT_DOCS_MAX_LINES, defaultProfile, loadProfile, validateProfile } from '../lib/profile.mjs';
 import { matchList } from '../lib/glob.mjs';
 import { git, gitRepo, tempDir, write, writeProfile } from './helpers.mjs';
 
@@ -48,6 +48,9 @@ test('missing-root: nothing at all, and root CLAUDE.md with content', () => {
   write(shim, 'CLAUDE.md', LINK);
   const shimIssue = find(checkDocs(shim, defaultProfile()), 'missing-root');
   assert.doesNotMatch(shimIssue.message, /перенеси/);
+  // the link plus blank lines is not content either
+  write(shim, 'CLAUDE.md', '@AGENTS.md\n\n\n');
+  assert.doesNotMatch(find(checkDocs(shim, defaultProfile()), 'missing-root').message, /перенеси/);
 
   const ok = tempDir();
   write(ok, 'AGENTS.md', '# x\n');
@@ -66,7 +69,7 @@ test('missing-shim for root and nested; fixDocs writes exactly the link', () => 
   assert.equal(root.level, 'error');
   assert.equal(root.fixable, true);
 
-  const created = fixDocs(dir, issues);
+  const created = fixDocs(dir, issues).written;
   assert.deepEqual(created.sort(), ['CLAUDE.md', 'backend/CLAUDE.md']);
   assert.equal(readFileSync(join(dir, 'CLAUDE.md'), 'utf8'), LINK);
   assert.equal(readFileSync(join(dir, 'backend/CLAUDE.md'), 'utf8'), LINK);
@@ -79,16 +82,22 @@ test('fixDocs ignores non-fixable issues and never overwrites content', () => {
   write(dir, 'AGENTS.md', '# x\n');
   write(dir, 'CLAUDE.md', 'my precious text\n');
   const issues = checkDocs(dir, defaultProfile());
-  assert.deepEqual(fixDocs(dir, issues), []);
+  assert.deepEqual(fixDocs(dir, issues), { written: [], skipped: [] });
   assert.equal(readFileSync(join(dir, 'CLAUDE.md'), 'utf8'), 'my precious text\n');
 
-  // a stale fixable issue must not clobber a file that gained content meanwhile
+  // a stale fixable issue must not clobber a file that gained content meanwhile — and says why it skipped
   const stale = [{ code: 'no-import', level: 'error', path: 'CLAUDE.md', message: '', fixable: true }];
-  assert.deepEqual(fixDocs(dir, stale), []);
+  const r1 = fixDocs(dir, stale);
+  assert.deepEqual(r1.written, []);
+  assert.equal(r1.skipped.length, 1);
+  assert.equal(r1.skipped[0].path, 'CLAUDE.md');
+  assert.match(r1.skipped[0].reason, /не пуст/);
   assert.equal(readFileSync(join(dir, 'CLAUDE.md'), 'utf8'), 'my precious text\n');
   // and a fixable missing-shim must not clobber an existing file
   const stale2 = [{ code: 'missing-shim', level: 'error', path: 'CLAUDE.md', message: '', fixable: true }];
-  assert.deepEqual(fixDocs(dir, stale2), []);
+  const r2 = fixDocs(dir, stale2);
+  assert.deepEqual(r2.written, []);
+  assert.match(r2.skipped[0].reason, /уже существует/);
   assert.equal(readFileSync(join(dir, 'CLAUDE.md'), 'utf8'), 'my precious text\n');
 });
 
@@ -105,7 +114,7 @@ test('no-import: text without import is an unfixable error, empty file is fixabl
   const issues = checkDocs(dir, defaultProfile());
   issue = find(issues, 'no-import');
   assert.equal(issue.fixable, true);
-  assert.deepEqual(fixDocs(dir, issues), ['CLAUDE.md']);
+  assert.deepEqual(fixDocs(dir, issues), { written: ['CLAUDE.md'], skipped: [] });
   assert.equal(readFileSync(join(dir, 'CLAUDE.md'), 'utf8'), LINK);
   assert.deepEqual(checkDocs(dir, defaultProfile()), []);
 });
@@ -392,7 +401,8 @@ test('rootDocStatus', () => {
 
 test('profile: docs defaults', () => {
   const profile = defaultProfile();
-  assert.deepEqual(profile.docs, { remind: true, max_lines: 200, watch: [...DEFAULT_DOCS_WATCH] });
+  assert.equal(DEFAULT_DOCS_MAX_LINES, 200);
+  assert.deepEqual(profile.docs, { remind: true, max_lines: DEFAULT_DOCS_MAX_LINES, watch: [...DEFAULT_DOCS_WATCH] });
   assert.deepEqual(DEFAULT_DOCS_WATCH, [
     'package.json', 'pyproject.toml', 'Cargo.toml', '*.sln', 'Makefile', 'justfile', 'Taskfile.yml',
     'docker-compose*.yml', 'compose*.yml', '.github/workflows/**', '.gitlab-ci.yml',
@@ -447,4 +457,142 @@ test('profile: invalid docs values report errors and fall back to defaults', () 
   const mixed = loadProfile(dir);
   assert.equal(mixed.profile.docs.remind, false);
   assert.equal(mixed.profile.docs.max_lines, 200);
+});
+
+const unix = process.platform !== 'win32';
+const asRoot = typeof process.getuid === 'function' && process.getuid() === 0;
+
+for (const useGit of [true, false]) {
+  test(`symlinked CLAUDE.md -> AGENTS.md is a valid link (${useGit ? 'git' : 'no git'})`, { skip: !unix }, () => {
+    const dir = useGit ? gitRepo() : tempDir();
+    write(dir, 'AGENTS.md', '# root\n`sub/` — area\n');
+    symlinkSync('AGENTS.md', join(dir, 'CLAUDE.md'));
+    write(dir, 'sub/AGENTS.md', '# sub\n');
+    symlinkSync('AGENTS.md', join(dir, 'sub/CLAUDE.md'));
+    // a symlinked directory is never followed
+    symlinkSync(join(dir, 'sub'), join(dir, 'loop'), 'dir');
+    const { files } = findAgentFiles(dir);
+    assert.ok(files.includes('CLAUDE.md') && files.includes('sub/CLAUDE.md'), files.join(','));
+    assert.ok(!files.some((f) => f.startsWith('loop/')), files.join(','));
+    assert.deepEqual(checkDocs(dir, defaultProfile()), []);
+    assert.equal(rootDocStatus(dir), 'ok');
+    // a symlink to some other file is read as that file
+    write(dir, 'other.md', '# not an import\n');
+    rmSync(join(dir, 'CLAUDE.md'));
+    symlinkSync('other.md', join(dir, 'CLAUDE.md'));
+    assert.ok(find(checkDocs(dir, defaultProfile()), 'no-import', 'CLAUDE.md'));
+    assert.equal(rootDocStatus(dir), 'no-import');
+  });
+}
+
+test('ignored but present siblings count: no permanent missing-shim', () => {
+  const dir = gitRepo();
+  write(dir, '.gitignore', 'CLAUDE.md\nbackend/CLAUDE.md\n');
+  write(dir, 'AGENTS.md', '# root\n`backend/` — api\n');
+  write(dir, 'CLAUDE.md', LINK);
+  write(dir, 'backend/AGENTS.md', '# backend\n');
+  write(dir, 'backend/CLAUDE.md', '# backend notes without the import\n');
+  const issues = checkDocs(dir, defaultProfile());
+  assert.equal(find(issues, 'missing-shim'), undefined, JSON.stringify(issues));
+  assert.ok(find(issues, 'no-import', 'backend/CLAUDE.md'), 'the ignored file is read and checked');
+
+  // an ignored root AGENTS.md is still the root AGENTS.md
+  const root = gitRepo();
+  write(root, '.gitignore', 'AGENTS.md\n');
+  write(root, 'AGENTS.md', '# root\n');
+  write(root, 'CLAUDE.md', LINK);
+  assert.deepEqual(checkDocs(root, defaultProfile()), []);
+});
+
+test('fixDocs: unreadable CLAUDE.md is never treated as empty', { skip: !unix || asRoot }, () => {
+  const dir = tempDir();
+  write(dir, 'AGENTS.md', '# x\n');
+  const file = write(dir, 'CLAUDE.md', 'secret text\n');
+  chmodSync(file, 0o200);
+  try {
+    const issue = find(checkDocs(dir, defaultProfile()), 'no-import', 'CLAUDE.md');
+    assert.ok(issue);
+    assert.equal(issue.fixable, false);
+    assert.match(issue.message, /прочитать/);
+    const forced = [{ ...issue, fixable: true }];
+    const r = fixDocs(dir, forced);
+    assert.deepEqual(r.written, []);
+    assert.match(r.skipped[0].reason, /не удалось прочитать CLAUDE\.md/);
+  } finally {
+    chmodSync(file, 0o600);
+  }
+  assert.equal(readFileSync(file, 'utf8'), 'secret text\n');
+});
+
+test('fixDocs: an unwritable empty CLAUDE.md is reported, not thrown', { skip: !unix || asRoot }, () => {
+  const dir = tempDir();
+  write(dir, 'AGENTS.md', '# x\n');
+  const file = write(dir, 'CLAUDE.md', '');
+  chmodSync(file, 0o400);
+  try {
+    const issues = checkDocs(dir, defaultProfile());
+    assert.equal(find(issues, 'no-import').fixable, true);
+    const r = fixDocs(dir, issues);
+    assert.deepEqual(r.written, []);
+    assert.match(r.skipped[0].reason, /не удалось записать CLAUDE\.md/);
+  } finally {
+    chmodSync(file, 0o600);
+  }
+});
+
+test('fixDocs: a dangling CLAUDE.md symlink is skipped with a reason', { skip: !unix }, () => {
+  const dir = tempDir();
+  write(dir, 'AGENTS.md', '# x\n');
+  symlinkSync('nowhere.md', join(dir, 'CLAUDE.md'));
+  const issues = checkDocs(dir, defaultProfile());
+  assert.ok(find(issues, 'missing-shim', 'CLAUDE.md'));
+  const r = fixDocs(dir, issues);
+  assert.deepEqual(r.written, []);
+  assert.match(r.skipped[0].reason, /уже существует/);
+});
+
+test('verify-undocumented: env assignments, cd prefixes and "run <script>" in command keys', () => {
+  const dir = tempDir();
+  write(dir, 'CLAUDE.md', LINK);
+  const profile = profileWithVerify({
+    a: 'CI=1 FOO=bar npm test',
+    b: 'cd web && npm run lint -- {files}',
+    c: 'cd api && CI=1 pytest -q',
+    d: 'yarn run build:ci',
+    e: 'bun run --silent check',
+  });
+  write(dir, 'AGENTS.md', '# x\n');
+  const messages = checkDocs(dir, profile).filter((i) => i.code === 'verify-undocumented').map((i) => i.message);
+  for (const key of ['"npm test"', '"npm run lint"', '"pytest"', '"yarn run build:ci"', '"bun run"']) {
+    assert.ok(messages.some((m) => m.includes(key)), `${key} in ${messages.join(' | ')}`);
+  }
+  assert.ok(!messages.some((m) => /CI=1|"cd /.test(m)), messages.join(' | '));
+
+  write(dir, 'AGENTS.md', '# x\n`npm test`, `npm run lint`, `pytest`, `yarn run build:ci`, `bun run check`\n');
+  assert.equal(find(checkDocs(dir, profile), 'verify-undocumented'), undefined);
+});
+
+test('broken-link: targets with balanced parentheses', () => {
+  const dir = tempDir();
+  write(dir, 'CLAUDE.md', LINK);
+  write(dir, 'docs/foo(bar).md', '# f\n');
+  write(dir, 'AGENTS.md', '# root\n[ok](docs/foo(bar).md) [bad](docs/baz(qux).md) (see [t](docs/foo(bar).md "T"))\n');
+  const broken = checkDocs(dir, defaultProfile()).filter((i) => i.code === 'broken-link');
+  assert.equal(broken.length, 1, JSON.stringify(broken));
+  assert.match(broken[0].message, /docs\/baz\(qux\)\.md$/);
+});
+
+test('CRLF and BOM agent files', () => {
+  assert.equal(isShim('@AGENTS.md\r\n'), true);
+  const dir = tempDir();
+  write(dir, 'AGENTS.md', '﻿# root\r\n`sub/` — area\r\n');
+  write(dir, 'CLAUDE.md', '﻿@AGENTS.md\r\n');
+  write(dir, 'sub/AGENTS.md', '﻿# sub\r\n');
+  write(dir, 'sub/CLAUDE.md', '# Claude notes\r\n\r\n@AGENTS.md\r\n');
+  assert.deepEqual(checkDocs(dir, defaultProfile()), []);
+  assert.equal(rootDocStatus(dir), 'ok');
+  write(dir, 'AGENTS.md', `﻿${lines(DEFAULT_DOCS_MAX_LINES).replace(/\n/g, '\r\n')}\`sub/\`\r\n`);
+  const long = find(checkDocs(dir, defaultProfile()), 'too-long', 'AGENTS.md');
+  assert.ok(long);
+  assert.match(long.message, new RegExp(`${DEFAULT_DOCS_MAX_LINES + 1} строк`));
 });

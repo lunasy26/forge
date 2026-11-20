@@ -400,6 +400,151 @@ test('stop docs: a truncated log is read from the start, one reminder', () => {
   assert.equal(stop(dir).stdout, '');
 });
 
+test('stop docs: a reminded change is not reminded again until it changes; closing counts as reminded', () => {
+  const dir = docsProject();
+  const scripts = { test: 'node --test', build: 'tsc' };
+  edit(dir, 'package.json', { ...PKG, scripts });
+  assert.equal(stop(dir).json.decision, 'block', 'first time: reminder');
+  edit(dir, 'AGENTS.md', '# Agents\n\nnpm run build\n');
+  assert.equal(stop(dir).stdout, '', 'agent file updated');
+  edit(dir, 'package.json', { ...PKG, scripts, dependencies: { a: '2.0.0' } });
+  assert.equal(stop(dir).stdout, '', 'only dependencies changed since the reminder');
+  edit(dir, 'package.json', { ...PKG, scripts: { ...scripts, lint: 'eslint .' }, dependencies: { a: '2.0.0' } });
+  const again = stop(dir);
+  assert.equal(again.json.decision, 'block', 'scripts changed again');
+  assert.match(again.json.reason, /package\.json \(scripts\)/);
+
+  // closed in the same window by an agent-file edit: later dependency edits stay quiet
+  const closed = docsProject();
+  edit(closed, 'package.json', { ...PKG, scripts });
+  edit(closed, 'AGENTS.md', '# Agents\n\nnpm run build\n');
+  assert.equal(stop(closed).stdout, '');
+  edit(closed, 'package.json', { ...PKG, scripts, dependencies: { a: '3.0.0' } });
+  assert.equal(stop(closed).stdout, '');
+});
+
+test('stop docs: memory is forgotten once scripts match HEAD again', () => {
+  const dir = docsProject();
+  const changed = { ...PKG, scripts: { test: 'node --test', build: 'tsc' } };
+  edit(dir, 'package.json', changed);
+  assert.equal(stop(dir).json.decision, 'block');
+  edit(dir, 'package.json', PKG); // back to HEAD
+  assert.equal(stop(dir).stdout, '');
+  assert.deepEqual(state(dir).docs.reminded?.scripts ?? {}, {}, 'entry dropped');
+  edit(dir, 'package.json', changed);
+  assert.equal(stop(dir).json.decision, 'block', 'the same change after a revert is new again');
+});
+
+test('stop docs: a new top-level directory is reminded once', () => {
+  const dir = docsProject();
+  edit(dir, 'tools/gen.mjs', 'export {}\n');
+  assert.match(stop(dir).json.reason, /новый каталог tools\//);
+  edit(dir, 'tools/more.mjs', 'export {}\n');
+  assert.equal(stop(dir).stdout, '', 'later writes into it do not remind');
+  edit(dir, 'scripts/x.sh', 'echo\n');
+  const other = stop(dir);
+  assert.match(other.json.reason, /новый каталог scripts\//, 'another new directory still reminds');
+  assert.doesNotMatch(other.json.reason, /tools/);
+
+  git(dir, 'add', 'tools');
+  git(dir, 'commit', '-q', '-m', 'tools');
+  edit(dir, 'tools/third.mjs', 'export {}\n');
+  assert.equal(stop(dir).stdout, '');
+  assert.ok(!(state(dir).docs.reminded?.dirs ?? []).includes('tools'), 'a committed directory is forgotten');
+});
+
+/** `git init` in an existing directory with a committed package.json. */
+function nestedRepo(dir) {
+  for (const args of [['init', '-q', '-b', 'main'], ['config', 'user.email', 't@example.com'], ['config', 'user.name', 't'],
+    ['config', 'commit.gpgsign', 'false'], ['config', 'core.hooksPath', '/dev/null']]) git(dir, ...args);
+  write(dir, 'package.json', PKG);
+  git(dir, 'add', 'package.json');
+  git(dir, 'commit', '-q', '-m', 'base');
+}
+
+test('stop docs: git is detected per package.json — no git at the root, repos in sub-folders', () => {
+  const root = tempDir();
+  write(root, 'AGENTS.md', '# Agents\n`app/` — app\n');
+  write(root, 'CLAUDE.md', '@AGENTS.md\n');
+  write(root, 'app/README.md', '# app\n');
+  nestedRepo(join(root, 'app'));
+  writeProfile(root, { verify: { on_stop: 'off' } });
+  assert.equal(stop(root).stdout, '');
+  edit(root, 'app/package.json', { ...PKG, dependencies: { a: '9.0.0' } });
+  assert.equal(stop(root).stdout, '', 'scripts equal the sub-repo HEAD');
+  edit(root, 'app/package.json', { ...PKG, scripts: { start: 'node .' } });
+  const r = stop(root);
+  assert.equal(r.json.decision, 'block');
+  assert.match(r.json.reason, /app\/package\.json \(scripts\)/);
+});
+
+test('stop docs: a nested repo under a git parent compares with its own HEAD', () => {
+  const dir = gitRepo('feature/x');
+  write(dir, 'AGENTS.md', '# Agents\n`sub/` — nested repo\n');
+  write(dir, 'CLAUDE.md', '@AGENTS.md\n');
+  git(dir, 'add', 'AGENTS.md', 'CLAUDE.md');
+  git(dir, 'commit', '-q', '-m', 'base');
+  write(dir, 'sub/README.md', '# sub\n');
+  nestedRepo(join(dir, 'sub'));
+  writeProfile(dir, { verify: { on_stop: 'off' } });
+  assert.equal(stop(dir).stdout, '');
+  edit(dir, 'sub/package.json', { ...PKG, dependencies: { a: '9.0.0' } });
+  assert.equal(stop(dir).stdout, '', 'not "new": the nested repo has it in HEAD');
+  edit(dir, 'sub/package.json', { ...PKG, scripts: { start: 'node .' } });
+  assert.match(stop(dir).json.reason, /sub\/package\.json \(scripts\)/);
+});
+
+test('stop docs: a negative cursor is read from the start and the verify message survives', () => {
+  const dir = docsProject({ commands: { test: 'node -e ""' }, verify: { steps: ['test'], on_stop: 'full' } });
+  edit(dir, 'package.json', { ...PKG, scripts: { x: 'y' } });
+  const s = state(dir);
+  s.docs.offset = -5;
+  s.verify = { ok: false, summary: 'test: код 1', edits_offset: readFileSync(join(dir, '.forge', 'edits.jsonl')).length, notified: false };
+  writeFileSync(join(dir, '.forge', 'state.json'), JSON.stringify(s));
+  const r = stop(dir);
+  assert.match(r.json.systemMessage, /последняя проверка не прошла/);
+  assert.equal(r.json.decision, 'block');
+  assert.match(r.json.reason, /package\.json \(scripts\)/);
+  assert.equal(state(dir).docs.offset, readFileSync(join(dir, '.forge', 'edits.jsonl')).length);
+});
+
+test('stop docs: remind false drops the docs cursor so it no longer holds rotation', () => {
+  const dir = docsProject();
+  const log = join(dir, '.forge', 'edits.jsonl');
+  writeFileSync(log, `${JSON.stringify({ t: 0, f: 'gone.txt' })}\n`.repeat(12000));
+  const size = readFileSync(log).length;
+  const s = state(dir);
+  s.verify = { ok: true, summary: 'ok', edits_offset: size, notified: false };
+  s.lint_offset = size;
+  s.docs.offset = 10;
+  writeFileSync(join(dir, '.forge', 'state.json'), JSON.stringify(s));
+  writeProfile(dir, { verify: { on_stop: 'off' }, docs: { remind: false } });
+  assert.equal(stop(dir).stdout, '');
+  assert.equal(state(dir).docs, undefined, 'stale cursor dropped');
+  assert.equal(readFileSync(log).length, 0, 'log rotated');
+});
+
+test('stop docs: a non-link CLAUDE.md closes a change, the link itself does not', () => {
+  const dir = docsProject();
+  edit(dir, '.github/workflows/ci.yml', 'on: push\n');
+  edit(dir, 'CLAUDE.md', '@AGENTS.md\n\nCI lives in .github/workflows/ci.yml\n');
+  assert.equal(stop(dir).stdout, '');
+
+  const link = docsProject();
+  edit(link, '.github/workflows/ci.yml', 'on: push\n');
+  edit(link, 'CLAUDE.md', '@AGENTS.md\n');
+  assert.equal(stop(link).json.decision, 'block');
+});
+
+test('stop docs: long lists are cut with «и ещё N» and the reason stays short', () => {
+  const dir = docsProject();
+  for (let i = 0; i < 25; i++) edit(dir, `.github/workflows/workflow-with-a-long-name-${i}.yml`, 'on: push\n');
+  const r = stop(dir);
+  assert.equal(r.json.decision, 'block');
+  assert.match(r.json.reason, /и ещё \d+/);
+  assert.ok(r.json.reason.length <= 600, `length ${r.json.reason.length}`);
+});
+
 test('post-batch: lints files edited since the last batch, once', () => {
   const dir = projectWithCheck({ lint: true });
   edit(dir, 'good.ts', 'fine');
