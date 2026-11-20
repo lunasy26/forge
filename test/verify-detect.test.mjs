@@ -95,7 +95,7 @@ test('detect: SwiftPM turns verification on stop off; unknown stack is reported'
   assert.deepEqual(empty.profile.verify.steps, []);
 });
 
-const BADGE = { path: 'README.md', pattern: 'version-(\\d+\\.\\d+\\.\\d+)-' };
+const BADGE = { path: 'README.md', pattern: 'badge/version-(\\d+\\.\\d+\\.\\d+)-' };
 
 test('detect release: forge-like project (CHANGELOG, v* tags, three version files)', () => {
   const dir = gitRepo();
@@ -173,4 +173,28 @@ test('detect release: CI npm publish alone turns it on; unprefixed tags give an 
   assert.equal(b.release.tag_prefix, '');
   assert.deepEqual(b.release.version_files, ['pom.xml', 'app.csproj']);
   assert.ok(b.notes.some((n) => /по тегам \(push: tags\)/.test(n)));
+});
+
+test('detect release: only a SemVer version counts, a shields badge is the only README pattern', () => {
+  const dir = gitRepo();
+  write(dir, 'CHANGELOG.md', '# Changelog\n');
+  write(dir, 'pom.xml', '<project><version>${revision}</version></project>');
+  write(dir, 'app.csproj', '<Project><PropertyGroup><Version>1.0</Version></PropertyGroup></Project>');
+  write(dir, 'package.json', { name: 'x', version: '2024.01.15' });
+  write(dir, 'README.md', 'see https://x/version-1.2.3-green\n');
+  assert.deepEqual(detectRelease(dir).release.version_files, []);
+
+  write(dir, 'package.json', { name: 'x', version: '1.2.3' });
+  write(dir, 'app.csproj', '<Project><ItemGroup><PackageReference Include="L"><Version>9.9.9</Version></PackageReference></ItemGroup></Project>');
+  write(dir, 'README.md', '![v](https://img.shields.io/badge/version-1.2.3-blue)\n');
+  assert.deepEqual(detectRelease(dir).release.version_files, ['package.json', BADGE]);
+});
+
+test('detect release: CalVer tags are not version tags', () => {
+  const dir = gitRepo();
+  write(dir, 'CHANGELOG.md', '# Changelog\n');
+  git(dir, 'tag', 'v2024.01.15');
+  const { release, notes } = detectRelease(dir);
+  assert.equal(release.tag_prefix, 'v');
+  assert.ok(!notes.some((n) => /теги версий/.test(n)));
 });

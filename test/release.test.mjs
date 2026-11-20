@@ -3,6 +3,7 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { compareSemver, parseSemver, readVersion, readVersions, writeVersion } from '../lib/release.mjs';
+import * as semver from '../lib/semver.mjs';
 import { headSha, isClean, latestVersionTag, listTags, mergeBase, tagExists } from '../lib/git.mjs';
 import { git, gitRepo, tempDir, write } from './helpers.mjs';
 
@@ -15,6 +16,22 @@ test('semver: precedence puts pre-releases below their release', () => {
   for (let i = 1; i < order.length; i++) assert.ok(compareSemver(order[i - 1], order[i]) < 0, `${order[i - 1]} < ${order[i]}`);
   assert.equal(compareSemver('1.0.0+a', '1.0.0+b'), 0);
 });
+
+test('semver: release.mjs re-exports the one implementation; no leading zeros', () => {
+  assert.equal(parseSemver, semver.parseSemver);
+  assert.equal(compareSemver, semver.compareSemver);
+  assert.equal(parseSemver('2024.01.15'), null);
+  assert.equal(parseSemver('1.2.03'), null);
+  assert.equal(parseSemver('0.0.0').major, 0);
+  assert.equal(latestVersionTag(gitRepoWithTags('v2024.01.15', 'v0.2.0'), 'v').tag, 'v0.2.0');
+  assert.equal(latestVersionTag(gitRepoWithTags('2024.01.15'), ''), null);
+});
+
+function gitRepoWithTags(...tags) {
+  const dir = gitRepo();
+  for (const t of tags) git(dir, 'tag', t);
+  return dir;
+}
 
 test('json: edits only the top-level version and keeps formatting, key order and BOM', () => {
   const dir = tempDir();
@@ -100,6 +117,61 @@ test('*.csproj: <Version>', () => {
   assert.equal(read(dir, 'src/App.csproj'), src.replace('2.1.0', '2.2.0'));
 });
 
+test('*.csproj: only Project > PropertyGroup (no Condition) > Version; never a PackageReference', () => {
+  const dir = tempDir();
+  const src = `<Project Sdk="Microsoft.NET.Sdk">
+  <!-- <Version>8.8.8</Version> -->
+  <ItemGroup>
+    <PackageReference Include="Lib"><Version>9.9.9</Version></PackageReference>
+    <PackageReference Include="Other" Version="7.7.7" />
+  </ItemGroup>
+  <PropertyGroup Condition="'$(Configuration)' == 'Debug'">
+    <Version>6.6.6</Version>
+  </PropertyGroup>
+  <PropertyGroup Label="Main">
+    <TargetFramework>net8.0</TargetFramework>
+    <Version>2.1.0</Version>
+  </PropertyGroup>
+  <PropertyGroup>
+    <Version>3.0.0</Version>
+  </PropertyGroup>
+</Project>
+`;
+  write(dir, 'App.csproj', src);
+  assert.equal(readVersion(dir, 'App.csproj').version, '2.1.0');
+  writeVersion(dir, 'App.csproj', '2.2.0');
+  assert.equal(read(dir, 'App.csproj'), src.replace('<Version>2.1.0', '<Version>2.2.0'));
+
+  // no unconditional version of the project: an error, nothing written
+  const only = `<Project><ItemGroup><PackageReference Include="L"><Version>1.0.0</Version></PackageReference></ItemGroup>
+<PropertyGroup Condition="'$(X)'=='y'"><Version>1.2.3</Version></PropertyGroup>
+<Target Name="t"><PropertyGroup><Version>4.0.0</Version></PropertyGroup></Target></Project>`;
+  write(dir, 'Only.csproj', only);
+  const r = readVersion(dir, 'Only.csproj');
+  assert.equal(r.version, null);
+  assert.match(r.error, /Version/);
+  assert.throws(() => writeVersion(dir, 'Only.csproj', '2.0.0'), /Only\.csproj/);
+  assert.equal(read(dir, 'Only.csproj'), only);
+});
+
+test('a version that is not SemVer is an error: ${revision}, 1.0, v1.0.0', () => {
+  const dir = tempDir();
+  write(dir, 'pom.xml', '<project><version>${revision}</version></project>');
+  const r = readVersion(dir, 'pom.xml');
+  assert.equal(r.version, null);
+  assert.equal(r.error, 'версия не в формате SemVer: ${revision}');
+  write(dir, 'a.csproj', '<Project><PropertyGroup><Version>1.0</Version></PropertyGroup></Project>');
+  assert.equal(readVersion(dir, 'a.csproj').error, 'версия не в формате SemVer: 1.0');
+  write(dir, 'package.json', '{"version":"v1.0.0"}');
+  assert.equal(readVersion(dir, 'package.json').error, 'версия не в формате SemVer: v1.0.0');
+  write(dir, 'Cargo.toml', '[package]\nversion = "2024.01.15"\n');
+  assert.equal(readVersion(dir, 'Cargo.toml').error, 'версия не в формате SemVer: 2024.01.15');
+  write(dir, 'README.md', 'version-1.0-blue');
+  assert.match(readVersion(dir, { path: 'README.md', pattern: 'version-([\\d.]+)-' }).error, /SemVer: 1\.0$/);
+  write(dir, 'ok.json', '{"version":"1.0.0-rc.1+b5"}');
+  assert.equal(readVersion(dir, 'ok.json').version, '1.0.0-rc.1+b5');
+});
+
 test('pattern: every occurrence of the capture group is read and rewritten', () => {
   const dir = tempDir();
   const src = '[![v](https://img.shields.io/badge/version-0.3.0-blue)](CHANGELOG.md)\n\nText\n![again](https://x/version-0.3.0-green)\n';
@@ -109,6 +181,19 @@ test('pattern: every occurrence of the capture group is read and rewritten', () 
   writeVersion(dir, item, '0.4.0');
   assert.equal(read(dir, 'README.md'), src.replaceAll('0.3.0', '0.4.0'));
   assert.deepEqual(readVersion(dir, { path: 'README.md', pattern: 'nothing-(\\d+)' }).version, null);
+});
+
+test('pattern: matches that disagree with each other are an error', () => {
+  const dir = tempDir();
+  write(dir, 'README.md', '![a](badge/version-0.3.0-blue)\n![b](badge/version-0.2.0-blue)\n![c](badge/version-0.3.0-green)\n');
+  const item = { path: 'README.md', pattern: 'version-(\\d+\\.\\d+\\.\\d+)-' };
+  const r = readVersion(dir, item);
+  assert.equal(r.version, null);
+  assert.match(r.error, /расходятся/);
+  assert.match(r.error, /0\.3\.0/);
+  assert.match(r.error, /0\.2\.0/);
+  // a narrower pattern sees only one match
+  assert.equal(readVersion(dir, { path: 'README.md', pattern: 'badge/version-(0\\.2\\.0)-' }).version, '0.2.0');
 });
 
 test('unknown file type, missing file and bad new version', () => {

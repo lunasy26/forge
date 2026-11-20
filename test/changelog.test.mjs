@@ -1,13 +1,15 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync } from 'node:fs';
+import { readFileSync } from 'node:fs';
 import {
-  bumpVersion, checkChangelog, compareVersions, parseChangelog, releaseChangelog, suggestBump,
+  bumpVersion, checkChangelog, compareVersions, parseChangelog, parseSemver, releaseChangelog, suggestBump,
   unreleasedEntryCount,
 } from '../lib/changelog.mjs';
+import * as semver from '../lib/semver.mjs';
 
-const FORGE = new URL('../CHANGELOG.md', import.meta.url);
-const service = '/path/to/service/CHANGELOG.md';
+// Snapshots of two real changelogs: the tests never read live files (they change with every release).
+const FORGE = new URL('./fixtures/forge-CHANGELOG.md', import.meta.url);
+const service = new URL('./fixtures/service-CHANGELOG.md', import.meta.url);
 const codes = (issues) => issues.map((i) => i.code);
 const names = (sections) => sections.map((s) => s.name);
 
@@ -70,6 +72,15 @@ test('parseChangelog: dash variants, no unreleased, no footer, pre-release versi
   assert.deepEqual(parseChangelog('').releases, []);
 });
 
+test('parseChangelog: entries are -, *, + and numbered items', () => {
+  const p = parseChangelog('## [Unreleased]\n\n### Added\n- a\n* b\n+ c\n1. d\n2) e\n10. f\n  wrapped\n\nplain paragraph\n');
+  assert.deepEqual(p.unreleased.sections[0].entries, ['a', 'b', 'c', 'd', 'e', 'f wrapped']);
+  assert.equal(bump([sec('Added', 'x')]).level, 'minor');
+  assert.equal(unreleasedEntryCount(parseChangelog('## [Unreleased]\n+ a\n')), 1);
+  assert.equal(unreleasedEntryCount(parseChangelog('## [Unreleased]\n1) a\n')), 1);
+  assert.equal(unreleasedEntryCount(parseChangelog('## [Unreleased]\n1.5 stays text\n')), 0);
+});
+
 test('parseChangelog: eol and BOM', () => {
   const p = parseChangelog('﻿# C\r\n\r\n## [Unreleased]\r\n\r\n### Added\r\n- a\r\n');
   assert.equal(p.eol, '\r\n');
@@ -84,23 +95,24 @@ test('parseChangelog: ## inside a code fence is not a heading', () => {
   assert.equal(p.badHeadings.length, 0);
 });
 
-test('real forge CHANGELOG.md parses', () => {
-  const p = parseChangelog(readFileSync(FORGE, 'utf8'));
+test('fixture: forge CHANGELOG.md parses', () => {
+  const text = readFileSync(FORGE, 'utf8');
+  const p = parseChangelog(text);
   assert.ok(p.header.startsWith('# Changelog'));
   assert.ok(p.unreleased);
-  assert.deepEqual(p.releases.slice(0, 2).map((r) => r.version), ['0.3.0', '0.2.0']);
-  assert.ok(names(p.releases[0].sections).includes('Обновление'));
-  assert.ok(p.releases[0].sections.every((s) => s.entries.length > 0));
+  assert.ok(p.releases.length >= 2);
+  for (let i = 1; i < p.releases.length; i++) assert.ok(compareVersions(p.releases[i - 1].version, p.releases[i].version) > 0);
+  assert.ok(p.releases.every((r) => r.sections.every((s) => s.entries.length > 0)));
   assert.ok(p.links.some((l) => l.label === 'Unreleased'));
-  assert.deepEqual(codes(checkChangelog(readFileSync(FORGE, 'utf8'))).filter((c) => c !== 'bad-heading'), []);
+  assert.deepEqual(codes(checkChangelog(text)).filter((c) => c !== 'bad-heading'), []);
 });
 
-test('real service-app CHANGELOG.md parses', { skip: !existsSync(service) }, () => {
+test('fixture: service-app CHANGELOG.md parses', () => {
   const text = readFileSync(service, 'utf8');
   const p = parseChangelog(text);
   assert.ok(p.unreleased);
-  assert.deepEqual(p.releases.map((r) => r.version).slice(0, 3), ['1.2.0', '1.1.0', '1.0.0']);
-  assert.ok(names(p.releases[0].sections).includes('Выкладка'));
+  assert.ok(p.releases.length >= 2);
+  assert.ok(p.releases.every((r) => r.sections.length > 0));
   assert.deepEqual(p.links, []);
   assert.deepEqual(checkChangelog(text), []);
 });
@@ -112,10 +124,43 @@ test('bumpVersion', () => {
   assert.equal(bumpVersion('1.2.3', 'minor'), '1.3.0');
   assert.equal(bumpVersion('1.2.3', 'patch'), '1.2.4');
   assert.equal(bumpVersion('0.0.0', 'minor'), '0.1.0');
-  assert.equal(bumpVersion('1.0.0-rc.1', 'minor'), '1.1.0');
-  assert.equal(bumpVersion('1.0.0-rc.1+build.5', 'patch'), '1.0.1');
+  assert.equal(bumpVersion('1.0.0-rc.1+build.5', 'patch'), '1.0.0');
   assert.throws(() => bumpVersion('1.0', 'patch'), /semver/);
   assert.throws(() => bumpVersion('1.0.0', 'huge'), /уровень/);
+});
+
+test('bumpVersion: from a pre-release it behaves like npm', () => {
+  // patch: drop the suffix
+  assert.equal(bumpVersion('1.2.3-rc.1', 'patch'), '1.2.3');
+  assert.equal(bumpVersion('1.0.0-rc.1', 'patch'), '1.0.0');
+  // minor: X.Y.0 when Z == 0, otherwise the next minor
+  assert.equal(bumpVersion('1.2.0-rc.1', 'minor'), '1.2.0');
+  assert.equal(bumpVersion('1.2.3-rc.1', 'minor'), '1.3.0');
+  assert.equal(bumpVersion('1.0.0-rc.1', 'minor'), '1.0.0');
+  // major: X.0.0 when Y == 0 and Z == 0, otherwise the next major
+  assert.equal(bumpVersion('2.0.0-rc.1', 'major'), '2.0.0');
+  assert.equal(bumpVersion('2.1.0-rc.1', 'major'), '3.0.0');
+  assert.equal(bumpVersion('2.0.1-rc.1', 'major'), '3.0.0');
+  // a release is bumped as before
+  assert.equal(bumpVersion('1.0.0', 'patch'), '1.0.1');
+});
+
+test('semver: one implementation, re-exported by changelog.mjs', () => {
+  assert.equal(parseSemver, semver.parseSemver);
+  assert.equal(compareVersions, semver.compareVersions);
+  assert.equal(bumpVersion, semver.bumpVersion);
+});
+
+test('semver: numeric parts have no leading zeros (CalVer is not a version)', () => {
+  assert.equal(parseSemver('2024.01.15'), null);
+  assert.equal(parseSemver('1.02.3'), null);
+  assert.equal(parseSemver('01.2.3'), null);
+  assert.equal(parseSemver('1.0.0-rc.01'), null);
+  assert.deepEqual(parseSemver('0.0.0'), { major: 0, minor: 0, patch: 0, pre: [] });
+  assert.equal(parseSemver('10.20.30').minor, 20);
+  const issues = checkChangelog('## [Unreleased]\n\n## [2024.01.15] — 2024-01-15\n');
+  assert.deepEqual(codes(issues), ['bad-heading']);
+  assert.equal(parseChangelog('## [2024.01.15] — 2024-01-15\n').releases.length, 0);
 });
 
 test('compareVersions: semver precedence', () => {
@@ -147,8 +192,19 @@ test('suggestBump: Removed and BREAKING/несовместим -> major', () => 
   assert.equal(bump([sec('Removed'), sec('Fixed', 'x')]).level, 'patch'); // empty Removed
   assert.equal(bump([sec('Changed', 'BREAKING: new API')]).level, 'major');
   assert.equal(bump([sec('Fixed', 'breaking change in x')]).level, 'major');
+  assert.equal(bump([sec('Fixed', 'Breaking Change: config')]).level, 'major');
+  assert.equal(bump([sec('Changed', 'BREAKING-CHANGE: x')]).level, 'major');
   assert.equal(bump([sec('Changed', 'Формат Несовместим со старым')]).level, 'major');
   assert.match(bump([sec('Changed', 'BREAKING')]).reason, /BREAKING/);
+});
+
+test('suggestBump: BREAKING is case-sensitive, «breaking change» is not; look-alikes do not count', () => {
+  assert.equal(bump([sec('Changed', 'a non-breaking tweak')]).level, 'minor');
+  assert.equal(bump([sec('Fixed', 'fixed line breaking in the editor')]).level, 'patch');
+  assert.equal(bump([sec('Fixed', 'Breaking the build less often')]).level, 'patch');
+  assert.equal(bump([sec('Fixed', 'unbreaking things')]).level, 'patch');
+  assert.equal(bump([sec('Fixed', 'BREAKINGS are fine')]).level, 'patch');
+  assert.equal(bump([sec('Fixed', 'this is a Breaking Change')]).level, 'major');
 });
 
 test('suggestBump: custom sections never raise the level', () => {
@@ -258,31 +314,54 @@ test('releaseChangelog: errors', () => {
 
 const withEntry = (text) => text.replace(/## \[Unreleased\]\r?\n/, (m) => `${m}${m.endsWith('\r\n') ? '\r\n' : '\n'}### Added\n- Новая запись\n`);
 
-// The real file's [Unreleased] holds entries between releases: empty it so the copy gets exactly one.
+// The snapshot's [Unreleased] may hold entries: empty it so the copy gets exactly one.
 const emptyUnreleased = (text) => text.replace(/(## \[Unreleased\]\r?\n)[\s\S]*?(?=^## \[\d)/m, '$1\n');
 
-test('releaseChangelog on a copy of the real forge CHANGELOG.md', () => {
-  const text = withEntry(emptyUnreleased(readFileSync(FORGE, 'utf8')));
-  const out = releaseChangelog(text, { version: '0.4.0', date: '2026-12-01' });
+test('releaseChangelog on a copy of the forge fixture', () => {
+  const original = readFileSync(FORGE, 'utf8');
+  const before = parseChangelog(original);
+  const prev = before.releases[0].version;
+  const next = bumpVersion(prev, 'minor');
+  const base = /^\[Unreleased\]: (.+)\/compare\//m.exec(original)[1];
+  const text = withEntry(emptyUnreleased(original));
+  const out = releaseChangelog(text, { version: next, date: '2999-12-01' });
   const p = parseChangelog(out);
   assert.deepEqual(p.unreleased.sections, []);
-  assert.deepEqual(p.releases[0], { version: '0.4.0', date: '2026-12-01', sections: [{ name: 'Added', entries: ['Новая запись'] }] });
-  assert.ok(out.includes('[Unreleased]: https://github.com/lunasy26/forge/compare/v0.4.0...HEAD\n[0.4.0]: https://github.com/lunasy26/forge/compare/v0.3.0...v0.4.0\n[0.3.0]:'));
+  assert.deepEqual(p.releases[0], { version: next, date: '2999-12-01', sections: [{ name: 'Added', entries: ['Новая запись'] }] });
+  assert.deepEqual(p.releases.slice(1), before.releases);
+  assert.ok(out.includes(`[Unreleased]: ${base}/compare/v${next}...HEAD\n[${next}]: ${base}/compare/v${prev}...v${next}\n[${prev}]:`));
   assert.deepEqual(checkChangelog(out).filter((i) => i.level === 'error'), []);
   // Everything after the new release is the old file byte for byte except the two footer lines.
-  const oldTail = text.slice(text.indexOf('## [0.3.0]'));
+  const oldTail = text.slice(text.indexOf(`## [${prev}]`));
   assert.ok(out.includes(oldTail.slice(0, oldTail.indexOf('[Unreleased]: '))));
 });
 
-test('releaseChangelog on a copy of the real service-app CHANGELOG.md', { skip: !existsSync(service) }, () => {
+test('releaseChangelog on a copy of the service-app fixture', () => {
   const original = readFileSync(service, 'utf8');
-  const out = releaseChangelog(withEntry(original), { version: '1.3.0', date: '2026-12-01' });
+  const before = parseChangelog(original);
+  const next = bumpVersion(before.releases[0].version, 'minor');
+  const out = releaseChangelog(withEntry(original), { version: next, date: '2999-12-01' });
   const p = parseChangelog(out);
-  assert.deepEqual(p.releases.slice(0, 2).map((r) => r.version), ['1.3.0', '1.2.0']);
-  assert.deepEqual(p.releases.slice(1), parseChangelog(original).releases);
-  assert.equal(p.header, parseChangelog(original).header);
+  assert.deepEqual(p.releases.slice(0, 2).map((r) => r.version), [next, before.releases[0].version]);
+  assert.deepEqual(p.releases.slice(1), before.releases);
+  assert.equal(p.header, before.header);
   assert.deepEqual(checkChangelog(out), []);
-  assert.equal(out.replace('## [Unreleased]\n\n## [1.3.0] — 2026-12-01\n\n### Added\n- Новая запись\n\n', '## [Unreleased]\n\n'), original);
+  assert.equal(out.replace(`## [Unreleased]\n\n## [${next}] — 2999-12-01\n\n### Added\n- Новая запись\n\n`, '## [Unreleased]\n\n'), original);
+});
+
+test('releaseChangelog: the heading separator is copied from the latest version heading', () => {
+  const text = (sep) => `# C\n\n## [Unreleased]\n\n### Fixed\n- a\n\n## [0.1.0]${sep}2026-01-01\n\n### Added\n- b\n`;
+  for (const sep of [' — ', ' – ', ' - ']) {
+    const out = release(text(sep));
+    assert.ok(out.includes(`## [0.4.0]${sep}2026-12-01\n`), JSON.stringify(sep));
+    assert.deepEqual(parseChangelog(out).releases.map((r) => r.version), ['0.4.0', '0.1.0']);
+  }
+  assert.ok(release('# C\n\n## [Unreleased]\n- a\n').includes('## [0.4.0] — 2026-12-01\n')); // no releases yet
+  // only the most recent heading decides
+  const mixed = '## [Unreleased]\n- a\n\n## [0.2.0] - 2026-02-01\n- b\n\n## [0.1.0] — 2026-01-01\n- c\n';
+  assert.ok(release(mixed).includes('## [0.4.0] - 2026-12-01\n'));
+  // a heading without date has no separator to copy
+  assert.ok(release('## [Unreleased]\n- a\n\n## [0.1.0]\n- c\n').includes('## [0.4.0] — 2026-12-01\n'));
 });
 
 // ---- check ----
@@ -345,4 +424,48 @@ test('checkChangelog: link-mismatch', () => {
   assert.equal(has(SAMPLE, 'link-mismatch'), false);
   assert.equal(has(SAMPLE.slice(0, SAMPLE.indexOf('[Unreleased]:')), 'link-mismatch'), false); // no footer at all
   assert.equal(has(swap(/v(\d)/g, 'rel-$1').replace(/v(\d)/g, 'rel-$1'), 'link-mismatch'), false); // any tag prefix
+});
+
+test('footer links: optional title, trailing whitespace or HTML comment are still links', () => {
+  const lines = [
+    '[Unreleased]: https://example.com/o/r/compare/v0.3.0...HEAD "latest"',
+    "[0.3.0]: https://example.com/o/r/compare/v0.2.0...v0.3.0 'third'",
+    '[0.2.0]: https://example.com/o/r/releases/tag/v0.2.0 (second)  ',
+    '',
+  ];
+  const text = `${HEADER}${BODY}\n${lines.join('\n')}`;
+  const p = parseChangelog(text);
+  assert.deepEqual(p.links.map((l) => [l.label, l.url]), [
+    ['Unreleased', 'https://example.com/o/r/compare/v0.3.0...HEAD'],
+    ['0.3.0', 'https://example.com/o/r/compare/v0.2.0...v0.3.0'],
+    ['0.2.0', 'https://example.com/o/r/releases/tag/v0.2.0'],
+  ]);
+  assert.deepEqual(checkChangelog(text), []);
+  const commented = text.replace(' (second)  ', ' <!-- keep -->');
+  assert.equal(parseChangelog(commented).links.length, 3);
+  assert.deepEqual(checkChangelog(commented), []);
+  assert.equal(parseChangelog(text.replace('"latest"', '"late')).links.length, 2); // broken title: not a link line
+});
+
+test('releaseChangelog: footer links with a title are updated and keep their title', () => {
+  const text = `${HEADER}${BODY}\n[Unreleased]: https://example.com/o/r/compare/v0.3.0...HEAD "latest"\n[0.3.0]: https://example.com/o/r/compare/v0.2.0...v0.3.0\n[0.2.0]: https://example.com/o/r/releases/tag/v0.2.0\n`;
+  const out = release(text);
+  assert.ok(out.includes('[Unreleased]: https://example.com/o/r/compare/v0.4.0...HEAD "latest"\n[0.4.0]: https://example.com/o/r/compare/v0.3.0...v0.4.0\n'));
+  assert.deepEqual(checkChangelog(out), []);
+});
+
+test('checkChangelog: link definitions outside the footer are reported', () => {
+  const stray = SAMPLE.replace('- Second thing.\n', '- Second thing.\n\n[ref]: https://example.com/ref\n');
+  const issues = checkChangelog(stray);
+  const hit = issues.find((i) => i.code === 'stray-link');
+  assert.equal(hit.level, 'warn');
+  assert.match(hit.message, /ref/);
+  assert.equal(issues.filter((i) => i.code !== 'stray-link').length, 0);
+  // a non-link line between footer lines cuts the footer: the lines above it are stray
+  const cut = SAMPLE.replace('[0.3.0]:', 'Some text\n[0.3.0]:');
+  assert.equal(has(cut, 'stray-link'), true);
+  assert.equal(has(SAMPLE, 'stray-link'), false);
+  assert.equal(has(SAMPLE.slice(0, SAMPLE.indexOf('[Unreleased]:')), 'stray-link'), false);
+  // a code fence is not a stray link
+  assert.equal(has('## [Unreleased]\n\n```\n[a]: http://x\n```\n\n- b\n', 'stray-link'), false);
 });

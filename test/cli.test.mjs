@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { chmodSync, existsSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { git, gitRepo, runCli, write, writeProfile } from './helpers.mjs';
+import { git, gitRepo, runCli, tempDir, write, writeProfile } from './helpers.mjs';
 
 test('init: preview without writing, then write profile, schema and git excludes', () => {
   const dir = gitRepo();
@@ -183,9 +183,9 @@ const RELEASE_PROFILE = {
 };
 
 /** A temp repo with a released 0.1.0 (tagged v0.1.0), an Added entry in [Unreleased] and a clean tree. */
-function releaseRepo({ changelog = RELEASE_CHANGELOG, tag = true } = {}) {
+function releaseRepo({ changelog = RELEASE_CHANGELOG, tag = true, profile = RELEASE_PROFILE } = {}) {
   const dir = gitRepo();
-  writeProfile(dir, RELEASE_PROFILE);
+  writeProfile(dir, profile);
   write(dir, 'CHANGELOG.md', changelog);
   write(dir, 'package.json', '{\n  "name": "x",\n  "version": "0.1.0"\n}\n');
   write(dir, 'README.md', '# X\n![v](https://img.shields.io/badge/version-0.1.0-blue)\n');
@@ -384,4 +384,153 @@ test('doctor: shows the changelog line only when release is configured', () => {
   write(dir, 'package.json', '{ "version": "0.1.0" }\n');
   git(dir, 'tag', '-d', 'v0.1.0');
   assert.match(runCli(['doctor'], { cwd: dir }).stdout, /! Журнал изменений: 1 замечание — forge release --check/);
+});
+
+test('release: with no releases in the changelog and no tags, the current version comes from the version files', () => {
+  const changelog = '# Changelog\n\n## [Unreleased]\n\n### Added\n- Новая команда\n';
+  const dir = releaseRepo({ changelog, tag: false, profile: { release: { version_files: ['package.json'] } } });
+  write(dir, 'package.json', '{\n  "name": "x",\n  "version": "2.4.0"\n}\n');
+  git(dir, 'commit', '-q', '-am', 'chore: version');
+  assert.equal(runCli(['release', '--check'], { cwd: dir }).code, 0);
+  const r = runCli(['release'], { cwd: dir });
+  assert.equal(r.code, 0, r.stdout);
+  assert.match(r.stdout, /2\.4\.0 → 2\.5\.0/);
+  assert.equal(JSON.parse(runCli(['release', 'patch', '--json'], { cwd: dir }).stdout).current, '2.4.0');
+  const done = runCli(['release', 'minor', '--yes', '--date', '2026-03-04'], { cwd: dir });
+  assert.equal(done.code, 0, done.stdout);
+  assert.match(readFileSync(join(dir, 'package.json'), 'utf8'), /"version": "2\.5\.0"/);
+
+  // no files, no tags, no releases: 0.0.0
+  const bare = releaseRepo({ changelog, tag: false, profile: { release: {} } });
+  assert.match(runCli(['release', 'patch'], { cwd: bare }).stdout, /0\.0\.0 → 0\.0\.1/);
+});
+
+test('release: a version file that differs from the current version is an error and refuses --yes', () => {
+  const dir = releaseRepo();
+  write(dir, 'package.json', '{\n  "name": "x",\n  "version": "0.1.5"\n}\n');
+  git(dir, 'commit', '-q', '-am', 'chore: drift');
+  const check = runCli(['release', '--check'], { cwd: dir });
+  assert.equal(check.code, 1);
+  assert.match(check.stdout, /✗ package\.json: .*0\.1\.5.*0\.1\.0 \[version-mismatch\]/);
+
+  const head = git(dir, 'rev-parse', 'HEAD');
+  const yes = runCli(['release', 'patch', '--yes'], { cwd: dir });
+  assert.equal(yes.code, 1);
+  assert.match(yes.stdout, /✗ package\.json: .*0\.1\.5.*0\.1\.0.*forge release --check/);
+  assert.equal(git(dir, 'rev-parse', 'HEAD'), head);
+  assert.equal(git(dir, 'tag', '--list', 'v0.1.*'), 'v0.1.0');
+  assert.equal(readFileSync(join(dir, 'CHANGELOG.md'), 'utf8'), RELEASE_CHANGELOG);
+
+  // a mismatch is an error whatever the source of the current version (here: a tag, no releases in the changelog)
+  const noReleases = releaseRepo({ changelog: '# Changelog\n\n## [Unreleased]\n\n### Added\n- Новая команда\n' });
+  write(noReleases, 'package.json', '{ "version": "0.3.0" }\n');
+  git(noReleases, 'commit', '-q', '-am', 'chore: drift');
+  assert.equal(runCli(['release', '--check'], { cwd: noReleases }).code, 1);
+  assert.equal(runCli(['release', 'patch', '--yes'], { cwd: noReleases }).code, 1);
+
+  // with several files and no other source, the highest wins and the lower one is the mismatch
+  const files = releaseRepo({
+    changelog: '# Changelog\n\n## [Unreleased]\n\n### Added\n- Новая команда\n',
+    tag: false,
+    profile: { release: { version_files: ['package.json', { path: 'README.md', pattern: 'version-(\\d+\\.\\d+\\.\\d+)-blue' }] } },
+  });
+  write(files, 'package.json', '{ "version": "2.0.0" }\n');
+  git(files, 'commit', '-q', '-am', 'chore: drift');
+  const mismatch = JSON.parse(runCli(['release', '--check', '--json'], { cwd: files }).stdout);
+  assert.deepEqual(mismatch.map((i) => [i.code, i.path]), [['version-mismatch', 'README.md']]);
+});
+
+test('release: invalid release.* profile fields are errors for --check and refuse preview and --yes', () => {
+  const dir = releaseRepo({ profile: { release: { tag_prefix: 5, version_files: ['package.json'] } } });
+  const check = runCli(['release', '--check'], { cwd: dir });
+  assert.equal(check.code, 1);
+  assert.match(check.stdout, /✗ .*release\.tag_prefix.*\[profile-invalid\]/);
+  assert.equal(JSON.parse(runCli(['release', '--check', '--json'], { cwd: dir }).stdout)[0].code, 'profile-invalid');
+  const preview = runCli(['release'], { cwd: dir });
+  assert.equal(preview.code, 1);
+  assert.match(preview.stdout, /✗ профиль: release\.tag_prefix/);
+  const head = git(dir, 'rev-parse', 'HEAD');
+  const yes = runCli(['release', 'minor', '--yes'], { cwd: dir });
+  assert.equal(yes.code, 1);
+  assert.match(yes.stdout, /✗ профиль: release\.tag_prefix/);
+  assert.equal(git(dir, 'rev-parse', 'HEAD'), head);
+
+  // a wrong item of version_files is no longer dropped silently
+  const files = releaseRepo({ profile: { release: { version_files: ['package.json', 7] } } });
+  assert.match(runCli(['release', '--check'], { cwd: files }).stdout, /✗ .*release\.version_files\[1\]/);
+  assert.equal(runCli(['release', 'patch', '--yes'], { cwd: files }).code, 1);
+
+  // errors outside release.* do not stop a release
+  const other = releaseRepo({ profile: { ...RELEASE_PROFILE, tdd: 'sometimes' } });
+  assert.equal(runCli(['release', '--check'], { cwd: other }).code, 0);
+});
+
+test('release --yes: refused in a repository without commits; nothing is written', () => {
+  const dir = tempDir();
+  git(dir, 'init', '-q', '-b', 'main');
+  git(dir, 'config', 'user.email', 'test@example.com');
+  git(dir, 'config', 'user.name', 'test');
+  git(dir, 'config', 'commit.gpgsign', 'false');
+  git(dir, 'config', 'tag.gpgsign', 'false');
+  git(dir, 'config', 'core.hooksPath', '/dev/null');
+  writeProfile(dir, { release: { version_files: ['package.json'] } });
+  write(dir, 'CHANGELOG.md', RELEASE_CHANGELOG);
+  write(dir, 'package.json', '{ "version": "0.1.0" }\n');
+  const r = runCli(['release', 'minor', '--yes'], { cwd: dir });
+  assert.equal(r.code, 1);
+  assert.match(r.stdout, /✗ .*нет коммитов/);
+  assert.equal(readFileSync(join(dir, 'CHANGELOG.md'), 'utf8'), RELEASE_CHANGELOG);
+  assert.equal(git(dir, 'tag', '--list'), '');
+  assert.equal(runCli(['release', 'minor'], { cwd: dir }).code, 0, 'the preview still works');
+});
+
+test('release --yes: refused on a detached HEAD; a non-default branch is warned about', () => {
+  const dir = releaseRepo();
+  git(dir, 'checkout', '-q', '--detach');
+  const head = git(dir, 'rev-parse', 'HEAD');
+  const detached = runCli(['release', 'minor', '--yes'], { cwd: dir });
+  assert.equal(detached.code, 1);
+  assert.match(detached.stdout, /✗ HEAD отсоединён — переключись на ветку/);
+  assert.equal(git(dir, 'rev-parse', 'HEAD'), head);
+  assert.equal(git(dir, 'status', '--porcelain'), '');
+  assert.equal(runCli(['release'], { cwd: dir }).code, 0, 'the preview works on a detached HEAD');
+
+  // no origin/HEAD: main and master are the default branches
+  git(dir, 'checkout', '-q', '-b', 'feat/x');
+  const feature = runCli(['release', 'minor', '--yes', '--date', '2026-03-04'], { cwd: dir });
+  assert.equal(feature.code, 0, feature.stdout);
+  assert.match(feature.stdout, /! выпуск не с ветки main\/master \(сейчас feat\/x\)/);
+  assert.match(feature.stdout, /Отправить: git push origin feat\/x && git push origin v0\.2\.0/);
+
+  const master = releaseRepo();
+  git(master, 'branch', '-m', 'master');
+  const ok = runCli(['release', 'minor', '--yes', '--date', '2026-03-04'], { cwd: master });
+  assert.equal(ok.code, 0, ok.stdout);
+  assert.doesNotMatch(ok.stdout, /выпуск не с ветки/);
+  assert.doesNotMatch(runCli(['release', 'patch', '--yes'], { cwd: releaseRepo() }).stdout, /выпуск не с ветки/);
+});
+
+test('release --yes: a failing tag after a successful commit undoes the commit and restores every file', () => {
+  const dir = releaseRepo();
+  // the tag step fails: signing is requested and the signer does not exist. gpg.format is pinned locally,
+  // otherwise a developer's global ssh signer (gpg.format=ssh) would be called instead of `false`.
+  git(dir, 'config', 'gpg.format', 'openpgp');
+  git(dir, 'config', 'gpg.program', 'false');
+  git(dir, 'config', 'tag.gpgSign', 'true');
+  const head = git(dir, 'rev-parse', 'HEAD');
+  const tags = git(dir, 'tag', '--list');
+  const changelog = readFileSync(join(dir, 'CHANGELOG.md'), 'utf8');
+  const pkg = readFileSync(join(dir, 'package.json'), 'utf8');
+  const readme = readFileSync(join(dir, 'README.md'), 'utf8');
+
+  const r = runCli(['release', 'minor', '--yes', '--date', '2026-03-04'], { cwd: dir });
+  assert.equal(r.code, 1, r.stdout + r.stderr);
+  assert.match(r.stdout, /✗ git tag не удался/);
+  assert.match(r.stdout, /Файлы возвращены в исходное состояние/);
+  assert.equal(git(dir, 'rev-parse', 'HEAD'), head, 'the release commit is gone');
+  assert.equal(git(dir, 'tag', '--list'), tags);
+  assert.equal(git(dir, 'status', '--porcelain'), '', 'index and tree are back to HEAD');
+  assert.equal(readFileSync(join(dir, 'CHANGELOG.md'), 'utf8'), changelog);
+  assert.equal(readFileSync(join(dir, 'package.json'), 'utf8'), pkg);
+  assert.equal(readFileSync(join(dir, 'README.md'), 'utf8'), readme);
 });

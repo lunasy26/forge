@@ -23,6 +23,7 @@ export function gitRepo(branch = 'main') {
   git(dir, 'config', 'user.name', 'test');
   // never touch the developer's signing setup or global hooks (an SSH signer can block waiting for approval)
   git(dir, 'config', 'commit.gpgsign', 'false');
+  git(dir, 'config', 'tag.gpgsign', 'false');
   git(dir, 'config', 'core.hooksPath', '/dev/null');
   git(dir, 'commit', '-q', '--allow-empty', '-m', 'init');
   return dir;
