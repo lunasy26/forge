@@ -62,9 +62,9 @@ forge/
 │   ├── hooks.json
 │   └── *.mjs                 # тонкие обёртки над lib/
 ├── agents/                   # scout, mechanic, implementer, architect, reviewer, debugger
-├── skills/                   # init, mode, plan, execute, review, debug, finish
+├── skills/                   # init, mode, plan, execute, review, docs, debug, finish
 ├── bin/forge                 # CLI, на PATH пока плагин включён
-├── lib/                      # profile, state, route, verify, guards, detect
+├── lib/                      # profile, state, route, verify, guards, detect, docs
 ├── config/
 │   ├── routing.json          # таблица маршрутизации по режимам
 │   └── profile.schema.json   # JSON Schema профиля (автодополнение в редакторе)
@@ -114,6 +114,7 @@ forge/
   },
   "protected_files": [".env*", "**/*.pem", "secrets/**"],
   "risky_paths": ["**/migrations/**", "**/auth/**", ".github/workflows/**"],
+  "docs": { "remind": true, "max_lines": 200, "watch": [] },
   "tdd": "encouraged",
   "mode": "normal",
   "routing": {}
@@ -122,6 +123,7 @@ forge/
 
 - `{files}` подставляется списком изменённых файлов.
 - `verify.on_stop`: `fast` (берёт `test_fast`, если задан), `full`, `off`. Для проектов с долгими тестами (iOS) по умолчанию `off` + только lint.
+- `docs` (с 0.3.0): `remind` — напоминание в конце хода (по умолчанию `true`); `max_lines` — предел длины агентского файла для `forge docs` (по умолчанию 200); `watch` дописывается к встроенному списку файлов, изменение которых требует проверить агентские файлы (`package.json`, `pyproject.toml`, `Cargo.toml`, `*.sln`, `Makefile`, `justfile`, `Taskfile.yml`, `docker-compose*.yml`, `compose*.yml`, `.github/workflows/**`, `.gitlab-ci.yml`); `!шаблон` снимает.
 - `tdd`: `off | encouraged | required`. Хуки его не применяют: `forge:plan` при `required` ставит тестовые задачи перед реализацией, `forge:execute` передаёт значение ролям.
 - `routing` — частичное переопределение таблицы из §8.
 
@@ -144,25 +146,27 @@ forge/
   "artifacts": { "spec": ".forge/work/oauth-login/spec.md", "plan": ".forge/work/oauth-login/plan.md" },
   "verify": { "at": "…", "ok": false, "summary": "test: код 1", "failed_step": "test", "edits_offset": 512, "notified": false },
   "failures": { "verify_streak": 2 },
-  "lint_offset": 512
+  "lint_offset": 512,
+  "docs": { "offset": 512 }
 }
 ```
 
 Состояние меняется только через `forge state …` и хуки, а не ручным редактированием JSON моделью.
 
-**Журнал правок.** Изменённые файлы пишутся не в `state.json`, а в `.forge/edits.jsonl` — по строке на правку, только дозаписью. Так параллельные `PostToolUse`-хуки не затирают друг друга. Линт и проверка хранят свои смещения в журнале (`lint_offset`, `verify.edits_offset`) и берут файлы, изменённые после них. Когда оба догнали конец и журнал больше 256 КБ, он обнуляется.
+**Журнал правок.** Изменённые файлы пишутся не в `state.json`, а в `.forge/edits.jsonl` — по строке на правку, только дозаписью. Так параллельные `PostToolUse`-хуки не затирают друг друга. Линт, проверка и напоминание про агентские файлы хранят свои смещения в журнале (`lint_offset`, `verify.edits_offset`, `docs.offset`) и берут файлы, изменённые после них. Когда все действующие смещения догнали конец и журнал не меньше 256 КБ, он обнуляется. Отсутствующее `docs.offset` означает «догнал» и обнуление не задерживает.
 
 ## 7. Хуки
 
 | Событие | Матчер | Что делает | Выход | Этап |
 |---|---|---|---|---|
-| `SessionStart` | startup, resume, clear, compact | Добавляет до 6 строк (не больше 600 символов): стек, команда проверки, режим, текущие уровень и стадия, путь к плану. Предупреждает, если включён Superpowers | `additionalContext` | v0.1 |
+| `SessionStart` | startup, resume, clear, compact | Добавляет до 6 строк (не больше 600 символов): стек, команда проверки, режим, текущие уровень и стадия, путь к плану. Предупреждает, если включён Superpowers. С профилем добавляет строку про корневые агентские файлы: нет `AGENTS.md` или `CLAUDE.md` не подключает его (проверка двух файлов без обхода каталогов) | `additionalContext` | v0.1, строка про агентские файлы — 0.3.0 |
 | `PreToolUse` | `Bash` | **Запрет:** push в защищённую ветку, `push` с `--force`/`-f`/`+refspec` (даже вместе с `--force-with-lease`: `--force` перекрывает lease; одни `--force-with-lease`/`--force-if-includes` в незащищённую ветку разрешены), `--mirror`, `commit`/`push --no-verify`. **Подтверждение пользователя:** `reset --hard`, `push --all`, `rm -r` за пределами проекта или по пути из переменной. Содержимое `$(...)`, обратных кавычек, `<(...)`/`>(...)` и heredoc без кавычек у разделителя проверяется рекурсивно, как `bash -c`; общий предел вложенности 3 (`bash -c`, `eval`, подстановки), глубже, при незакрытой подстановке или входе, который разборщик не может проследить (предел вложенности и бюджет шагов), — `ask`. Разбор следует правилам bash: ANSI-C `$'…'`, склейка `\`+перевод строки, `<<-` против `<<`, арифметика `$((…))`, `case` только на месте команды; сокращённые длинные опции git читаются как полные. При внутренней ошибке охраны — `ask` (fail-closed). Известные пропуски (имя команды из подстановки, stdin-скрипты, обёртки со значением флага) — в README, «Ограничения»; охрана — страховка от ошибок, а не песочница | `permissionDecision: deny` или `ask` + причина | v0.1 |
 | `PreToolUse` | `Edit\|Write\|MultiEdit\|NotebookEdit` | `protected_files` → запрет. При внутренней ошибке проверки — `ask` (fail-closed) | `deny` / `ask` + причина | v0.1 |
 | `PreToolUse` | то же | *(не реализовано, см. §13)* `risky_paths` при уровне < T3 → запрет с подсказкой поднять уровень. Уровень ≥ T2 и нет плана → запрет «сначала план» | `deny` + причина | v0.2 |
 | `PostToolUse` | `Edit\|Write\|MultiEdit\|NotebookEdit` | Дописывает файл и время правки в журнал `.forge/edits.jsonl` (`lib/edits.mjs`). Ничего не запускает | — | v0.1 |
 | `PostToolBatch` | — | Один раз на пачку правок: `format` + `lint` по изменённым файлам. Ошибки передаёт Claude, ход не прерывается (`decision: block` на `PostToolBatch` останавливает цикл и показывает причину только пользователю) | `hookSpecificOutput.additionalContext` + сжатый вывод | v0.1 |
 | `Stop` | — | Если правки были позже последней проверки — запускает `verify`. Падение → не даёт остановиться и показывает сжатый вывод. Отпускает только при повторной остановке (`stop_hook_active`) и серии падений ≥ 3 подряд: тогда не блокирует, а сообщает пользователю о падении | `decision: block` / `systemMessage` | v0.1 |
+| `Stop` | — | Напоминание про агентские файлы, один раз на окно правок (курсор `docs.offset`): если с прошлого срабатывания менялись файлы из `docs.watch` (`package.json` в git — только `scripts` против `HEAD`) или появился каталог верхнего уровня, которого нет в `HEAD` и в корневом `AGENTS.md`, и в том же окне не правился `AGENTS.md` (или `CLAUDE.md` с содержимым) в каталоге изменения или выше, — не даёт остановиться и просит проверить, не устарели ли файлы. Проверка (`verify`) важнее: при её падении или «отпускании» напоминания нет, курсор остаётся. Первая остановка после обновления только заводит курсор. Выключается `docs.remind: false` | `decision: block` | 0.3.0 |
 | `Stop` | — | *(не реализовано)* На T3: нет `review.md` новее последней правки → не даёт остановиться, просит `forge:review` | `decision: block` | v0.2 |
 | `SubagentStart` | роли forge | *(не реализовано)* Даёт субагенту карточку роли и команду проверки из профиля, не раздувая основную сессию | `additionalContext` | v0.2 |
 
@@ -249,6 +253,7 @@ forge/
 | `forge:plan` | модель (T2+) или пользователь | Уточняет задачу (короткая спека встроена), пишет план. Уровень T2/T3 | `spec.md`, `plan.md` |
 | `forge:execute` | модель или пользователь | Идёт по плану: роль на задачу, независимые задачи параллельно, проверка после каждой | отметки в `plan.md` |
 | `forge:review` | модель (обязательно на T3) или пользователь | Reviewer по диффу относительно базы; находки с серьёзностью | `review.md` |
+| `forge:docs` | модель или пользователь | Заводит, переносит и делит агентские файлы по схеме «`AGENTS.md` — источник, рядом `CLAUDE.md` с `@AGENTS.md`»; начинает с `forge docs --json`, ничего не пишет без согласия пользователя, переносит текст дословно и сверяет, что строки не потеряны (0.3.0) | `AGENTS.md`, `CLAUDE.md` |
 | `forge:debug` | модель при падениях | Воспроизвести → гипотеза → минимальный тест → исправление → проверка; эскалация на debugger | — |
 | `forge:finish` | модель или пользователь | Финальная проверка, сводка, предложение коммита или PR. Никогда не пушит без «да» пользователя | — |
 
@@ -277,6 +282,7 @@ forge/
 | `forge mode [eco\|normal\|max]` | Показать или переключить режим |
 | `forge route <role>` | Вывести `model=… effort=…` для роли в текущем режиме |
 | `forge verify [--fast]` | Запустить шаги проверки, записать результат, вывести сжатую сводку |
+| `forge docs [--fix] [--json]` | Проверить структуру `AGENTS.md`/`CLAUDE.md` без модели (коды, уровни и коды выхода — в README); `--fix` создаёт недостающие ссылки `CLAUDE.md` (0.3.0) |
 | `forge doctor` | Версия Node, валидность профиля, ошибки хуков из лога, конфликт с Superpowers |
 
 Полный справочник — флаги (`init --force`, `route --table`, `--json` у `route` и `verify`) и коды выхода — в README, раздел «CLI `forge`».
@@ -318,6 +324,12 @@ forge/
 - Предупреждения о проигнорированных переопределениях `routing` при старте сессии.
 - README, AGENTS.md, CHANGELOG, LICENSE, CI.
 
+**0.3.0 (в работе, `[Unreleased]` в `CHANGELOG.md`)**
+
+- Агентские файлы: схема «`AGENTS.md` — источник, рядом `CLAUDE.md` с `@AGENTS.md`», в том числе во вложенных каталогах. `forge docs [--fix] [--json]` — детерминированные проверки (`missing-root`, `missing-shim`, `no-import`, `claude-only`, `fat-claude`, `too-long`, `unlisted`, `broken-link`, `verify-undocumented`, `incomplete-scan`) и строка в `forge doctor`.
+- Хук `Stop`: одноразовое напоминание проверить агентские файлы, если поменялись команды или структура; новый курсор `docs.offset`. `SessionStart`: строка про корневые файлы.
+- Поле профиля `docs` (`remind`, `max_lines`, `watch`); скилл `forge:docs` с `guide.md`; шаг `forge docs` в `forge:init`.
+
 Подробности по версиям — в `CHANGELOG.md`.
 
 **Дальше**
@@ -326,7 +338,6 @@ forge/
 - `SubagentStart` и хуки ролей, агенты `mechanic` и `architect`.
 - Скиллы `debug` и `finish`.
 - Первый прогон evals.
-- Проверки и скилл `forge:docs` для многоуровневых AGENTS.md/CLAUDE.md.
 - Процесс выпуска с CHANGELOG и SemVer (`forge:release`).
 - Опционально: хук `PreToolUse` на `Agent`, подставляющий `model`/`effort`.
 - `forge:execute` через Workflow-скрипт из каталога `workflows/` плагина.
