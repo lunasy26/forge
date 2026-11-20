@@ -66,8 +66,8 @@
       "items": { "type": "string" },
       "description": "Добавляются к встроенным (.env, ключи). Синтаксис как в .gitignore; !pattern снимает защиту."
     },
-    "risky_paths": { "type": "array", "items": { "type": "string" }, "description": "Пути, правка которых требует уровня T3 (с v0.2)." },
-    "tdd": { "enum": ["off", "encouraged", "required"] },
+    "risky_paths": { "type": "array", "items": { "type": "string" }, "description": "Пути, которые forge:plan считает рискованными: задача с такими файлами получает уровень T3 и критерии роли senior. Хуки в 0.2.0 правки по ним не блокируют." },
+    "tdd": { "enum": ["off", "encouraged", "required"], "description": "Отношение к TDD. Хуки его не применяют; при required forge:plan ставит тестовые задачи перед реализацией, forge:execute передаёт значение ролям." },
     "mode": { "enum": ["eco", "normal", "max"], "description": "Режим по умолчанию; forge mode переопределяет его в состоянии." },
     "routing": {
       "type": "object",

@@ -1,0 +1,85 @@
+# AGENTS.md — forge
+
+Инструкции для агентов, которые меняют сам forge. Пользовательская справка — [README.md](README.md), обоснование решений — [docs/spec.md](docs/spec.md).
+
+## Ориентация
+
+forge — плагин Claude Code на Node ≥ 20 (ESM, `.mjs`, ни одной зависимости, без сборки). Хуки в `hooks/` — тонкие обёртки: читают событие со stdin, зовут `lib/` и печатают JSON. Вся логика — в `lib/`, её же использует CLI `bin/forge` → `lib/cli.mjs`, поэтому она покрыта юнит-тестами. Скиллы и агенты — markdown-инструкции для модели; механика (то, что должно происходить всегда) живёт в хуках и CLI, а не в тексте скиллов.
+
+| Где | Что |
+|---|---|
+| `.claude-plugin/` | `plugin.json` (версия плагина), `marketplace.json` (маркетплейс `forge-dev`) |
+| `hooks/hooks.json` | события, матчеры, таймауты; `hooks/*.mjs` — по скрипту на событие; обычные хуки идут через `runHook` из `lib/util.mjs`, охранные `pre-bash` и `pre-edit` — без него (см. «Fail-open») |
+| `lib/guards.mjs`, `lib/shell.mjs`, `lib/glob.mjs` | охрана Bash и файлов, разбиение команд, glob-шаблоны |
+| `lib/profile.mjs` + `config/profile.schema.json` | профиль: значения по умолчанию, валидация, схема для редактора — держи их в согласии |
+| `lib/state.mjs`, `lib/edits.mjs` | `.forge/state.json` и журнал правок `.forge/edits.jsonl` с курсорами |
+| `lib/verify.mjs`, `lib/cli.mjs` | запуск команд проверки; команды CLI и `verifyAndRecord` (общая с Stop-хуком) |
+| `lib/route.mjs` + `config/routing.json` | роли, таблица режимов, инварианты `checkTable` |
+| `lib/detect.mjs` | автоопределение стека для `forge init` |
+| `lib/paths.mjs`, `git.mjs`, `settings.mjs`, `util.mjs` | корень проекта, git, настройки Claude Code, ввод-вывод |
+| `agents/`, `skills/` | промпты ролей и скиллов |
+| `test/` | `node:test`; `helpers.mjs` — временные репозитории, запуск хуков и CLI |
+| `docs/spec.md` | спецификация и решения; `docs/superpowers/{specs,plans}/` — дизайн и план отдельных фич |
+
+## Команды
+
+```bash
+npm test                                                  # все тесты
+node --test test/guards.test.mjs                          # один файл
+node --test --test-name-pattern "force" test/guards.test.mjs
+
+# CLI против временного проекта
+tmp=$(mktemp -d) && git -C "$tmp" init -q -b main
+(cd "$tmp" && CLAUDE_PROJECT_DIR= node /path/to/forge/bin/forge init --yes && CLAUDE_PROJECT_DIR= node /path/to/forge/bin/forge doctor)
+
+# хук вручную: событие на stdin, ответ в stdout
+echo "{\"cwd\":\"$tmp\",\"tool_input\":{\"command\":\"git push origin main\"}}" \
+  | CLAUDE_PROJECT_DIR="$tmp" node hooks/pre-bash.mjs
+
+claude --plugin-dir .                                     # живая проверка плагина
+```
+
+`CLAUDE_PROJECT_DIR` важнее текущего каталога при поиске корня проекта. Если он задан в окружении, CLI работает с ним, а не с временным проектом, — очищай его, как это делает `runCli`.
+
+## Инварианты и соглашения
+
+- **Ноль зависимостей.** Только `node:*`. Никакого `npm install`, `node_modules`, транспиляции. Код должен работать на Node 20 (CI гоняет 20, 22, 24).
+- **Язык.** Всё, что видит пользователь, — по-русски: вывод CLI, причины хуков (с префиксом `forge:`), ошибки валидации профиля и таблицы. Скиллы, агенты и комментарии в коде — по-английски.
+- **Fail-open.** Хук никогда не блокирует работу из-за своей ошибки: всё выполняется внутри `runHook`, исключение пишется в лог, выход — 0 без вывода. Не завершай хук ненулевым кодом и не бросай исключения из `loadProfile`/`loadState`. **Исключение — охранные хуки `pre-bash` и `pre-edit`: они fail-closed.** Они не используют `runHook`: чтение stdin, загрузка модулей (динамический `import()`), поиск корня проекта, `loadProfile` и проверка — всё внутри одного `try/catch`, ошибка пишется в лог и превращается в `ask` с причиной «внутренняя ошибка проверки … Подтверди». Молчаливый пропуск здесь — дыра в охране: так `protected_files: ["{*}"]` ломал сопоставление шаблонов, и хук разрешал любую правку. Новый охранный хук делай так же; на нечитаемый stdin (нет команды или пути — нечего проверять) он по-прежнему молча выходит.
+- **Сломанный профиль не блокирует работу.** `loadProfile` не бросает: невалидный JSON — значения по умолчанию, невалидное поле — значение по умолчанию для поля плюс текст ошибки (его показывают `forge doctor` и начало сессии). Новое поле профиля: значение по умолчанию в `defaultProfile`, проверка в `validateProfile`, слияние в `loadProfile`, описание в схеме, строка в таблице README.
+- **Тишина.** На разрешение охранные хуки ничего не печатают — иначе ломаются обычные разрешения Claude Code. Без `.forge/profile.json` хуки ничего не пишут в проект.
+- **Бюджет хуков** (spec §14): все хуки, кроме проверки, — не больше 150 мс p95; внешние процессы — только короткие вызовы `git`. Тест `guard hooks stay fast` проверяет лишь грубую границу (медиана < 1 с), на него не полагайся. Контекст `SessionStart` — не больше 600 символов (`MAX_CONTEXT`, есть тест); добавляй строку, только если без неё модель ошибётся.
+- **Состояние** меняется только через `updateState` и `forge state`. Журнал правок — только дозапись: параллельные `PostToolUse` не должны гоняться за `state.json`.
+- **Маршрутизация.** Инварианты — в `checkTable`: reviewer ≥ implementer, senior ≥ implementer, reviewer ≥ senior, debugger ≥ senior, в `eco` нет `fable`, имена моделей, effort и ролей известны. Встроенная таблица держит senior строго сильнее implementer. `model`/`effort` во frontmatter агента обязаны совпадать со строкой `normal` — это проверяет тест, список агентов в нём задан явно. У scout нет Edit, Write и Bash, у reviewer — Edit и Write. Переопределения из профиля — всё или ничего.
+- **Скиллы** (spec §9): `description` — узкий триггер («Use to…», «Use before…», «Use when…»), без «ты обязан» и «1% шанса»; тело — до ~150 строк и объясняет «почему»; тяжёлая работа уходит ролям через `forge route <role>` и вызов агента с `model` и `effort`; `context: fork` не используется — он фиксирует модель и ломает режимы; команды только для пользователя — `disable-model-invocation: true`.
+- **Агенты** не коммитят, не пушат и не переключают ветки — git остаётся за вызывающей сессией.
+
+## Тесты
+
+- Логика `lib/` — юнит-тесты. Хуки — сквозные: `runHookScript(name, input, { projectDir })` подаёт JSON на stdin и проверяет код выхода, stdout и разобранный JSON. CLI — `runCli(args, { cwd })`.
+- Фикстуры — `gitRepo(branch)` (подпись коммитов и глобальные git-хуки выключены), `writeProfile`, `write`, изолированный `CLAUDE_CONFIG_DIR`. Тест не должен читать `~/.claude` разработчика, подписывать коммиты или запускать его git-хуки.
+- Любое изменение правила охраны — тесты в `test/guards.test.mjs` и на запрещённое написание, и на похожее разрешённое: ложное срабатывание — тоже баг. Изменения разбора команд — ещё и в `test/glob-shell.test.mjs`.
+- Отказ охранных хуков проверяется подменой `lib/guards.mjs` на заглушки, которые бросают исключение: `test/throwing-guards.mjs`, подключается через `NODE_OPTIONS=--import=…` (тест `guard hooks fail closed`); переменная `FORGE_TEST_BROKEN_MODULE` в нём же заставляет выбранный модуль не загрузиться. В продакшен-коде для этого нет шва.
+- Новая роль: `config/routing.json` (роль и строка в каждом режиме), `$defs.routingMode` в схеме, инварианты и их тест, при новом агенте — его файл и имя в тесте frontmatter (`test/route-profile.test.mjs`).
+
+## Git
+
+Разработчик один, pull request'ов нет.
+
+1. Короткая ветка от свежего `main`: `feat/…`, `fix/…`, `docs/…`.
+2. Коммиты — conventional commits по-русски: `feat(routing): …`, `fix(guards): …`, `docs: …`, `test: …`, `chore: …`.
+3. `npm test` зелёный.
+4. Локальное слияние в `main` (fast-forward или merge-коммит), ветку удалить, `git push origin main`. CI (`.github/workflows/test.yml`) гоняет `npm test` на push в `main`.
+
+Охрана самого forge в этом репозитории настроена локальным `.forge/profile.json` (каталог `.forge/` в `.gitignore`) с `"git": { "protected_branches": [] }`, поэтому push в `main` разрешён. В свежем клоне без этого профиля действуют встроенные `main`/`master`, и push в `main` будет отклонён — сначала создай профиль. `.forge/` не коммить.
+
+## CHANGELOG
+
+- Изменение, заметное тому, кто поставил плагин (поведение хуков и охраны, команды `forge`, скиллы, агенты, формат профиля), получает запись в `CHANGELOG.md` под `[Unreleased]` в той же ветке. Разделы — Added, Changed, Fixed, Removed и «Обновление» (что сделать при переходе).
+- Выпуск: перенести `[Unreleased]` в `[x.y.z] — YYYY-MM-DD` и обновить ссылки сравнения внизу файла, поднять `version` и в `.claude-plugin/plugin.json`, и в `package.json`, закоммитить, поставить тег `vx.y.z`, `git push origin main --tags` (или отправить тег отдельно).
+
+## Где решения
+
+- `docs/spec.md` — цели, принципы, архитектура, план версий. Меняешь дизайнерское решение — обнови спеку.
+- `docs/superpowers/specs/` и `docs/superpowers/plans/` — дизайн и план реализации отдельных фич (например, роль `senior`).
+- `README.md` — справка по фактическому поведению. Меняешь поведение — обнови соответствующую таблицу.
