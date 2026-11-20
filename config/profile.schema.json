@@ -30,6 +30,7 @@
         "scout": { "$ref": "#/$defs/route" },
         "mechanic": { "$ref": "#/$defs/route" },
         "implementer": { "$ref": "#/$defs/route" },
+        "senior": { "$ref": "#/$defs/route" },
         "architect": { "$ref": "#/$defs/route" },
         "reviewer": { "$ref": "#/$defs/route" },
         "debugger": { "$ref": "#/$defs/route" }

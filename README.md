@@ -53,11 +53,12 @@ CLI `forge` доступен в Bash, пока плагин включён: `for
 | scout | haiku / low | haiku / low | sonnet / medium |
 | mechanic | sonnet / low | sonnet / medium | sonnet / high |
 | implementer | sonnet / medium | sonnet / high | opus / high |
+| senior | sonnet / high | opus / high | opus / xhigh |
 | architect | sonnet / high | opus / high | opus / xhigh |
 | reviewer | sonnet / high | opus / high | fable / high |
 | debugger | opus / high | fable / high | fable / high |
 
-Переопределения — в `routing` профиля. Они применяются, только если ревьюер остаётся не слабее исполнителя и в `eco` нет Fable.
+Переопределения — в `routing` профиля. Они применяются, только если senior не слабее исполнителя, ревьюер и debugger не слабее senior, и в `eco` нет Fable.
 
 ## Разработка
 

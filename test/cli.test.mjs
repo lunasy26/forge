@@ -29,6 +29,8 @@ test('mode and route: switching mode changes the routed models', () => {
   const dir = gitRepo();
   writeProfile(dir, {});
   assert.match(runCli(['route', 'implementer'], { cwd: dir }).stdout, /agent=forge:implementer model=sonnet effort=high/);
+  assert.match(runCli(['route', 'senior'], { cwd: dir }).stdout, /agent=forge:implementer model=opus effort=high/);
+  assert.match(runCli(['mode'], { cwd: dir }).stdout, /senior\s+opus\/high/);
   const mode = runCli(['mode', 'eco'], { cwd: dir });
   assert.match(mode.stdout, /Режим: eco/);
   assert.match(runCli(['route', 'implementer'], { cwd: dir }).stdout, /mode=eco .* model=sonnet effort=medium/);

@@ -1,5 +1,6 @@
 // SessionStart: at most a few lines of context. No manifesto.
 import { isGitRepo } from '../lib/git.mjs';
+import { effectiveTable, loadRouting } from '../lib/route.mjs';
 import { loadProfile } from '../lib/profile.mjs';
 import { superpowersEnabled } from '../lib/settings.mjs';
 import { loadState } from '../lib/state.mjs';
@@ -27,6 +28,8 @@ runHook('session-start', async (_input, root) => {
     }
     if (state.verify && state.verify.ok === false) lines.push(`Последняя проверка не прошла: ${state.verify.summary}.`);
     if (errors.length) lines.push(`В профиле ошибки (${errors.length}) — forge doctor.`);
+    const { warnings } = effectiveTable(loadRouting(), profile.routing);
+    if (warnings.length) lines.push(`Переопределения routing из профиля проигнорированы (${warnings.length}) — forge doctor.`);
   }
   if (superpowersEnabled(root)) lines.push('Включён Superpowers: он конфликтует с forge — отключи его.');
   let text = lines.join('\n');

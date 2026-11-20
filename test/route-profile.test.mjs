@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { checkTable, effectiveTable, loadRouting, mergeTable, resolveRoute } from '../lib/route.mjs';
+import { checkTable, compareStrength, effectiveTable, loadRouting, mergeTable, parseEntry, resolveRoute } from '../lib/route.mjs';
 import { DEFAULT_PROTECTED_FILES, loadProfile } from '../lib/profile.mjs';
 import { PLUGIN_ROOT, tempDir, write, writeProfile } from './helpers.mjs';
 
@@ -88,4 +88,43 @@ test('profile: merge, validation and protected_files extending the defaults', ()
   assert.equal(profile.mode, 'eco');
   assert.ok(profile.protected_files.includes('.env'));
   assert.ok(profile.protected_files.includes('config/secrets.json'));
+});
+
+test('senior routes to the implementer agent, strictly above implementer in every mode', () => {
+  const { table } = effectiveTable(routing, {});
+  assert.deepEqual(resolveRoute(routing, table, 'normal', 'senior'), {
+    role: 'senior', mode: 'normal', agent: 'forge:implementer', model: 'opus', effort: 'high',
+  });
+  assert.equal(table.eco.senior, 'sonnet/high');
+  assert.equal(table.max.senior, 'opus/xhigh');
+  for (const mode of ['eco', 'normal', 'max']) {
+    assert.ok(compareStrength(routing, parseEntry(table[mode].senior), parseEntry(table[mode].implementer)) > 0, mode);
+  }
+  assert.equal(effectiveTable(routing, { normal: { scout: 'haiku/medium' } }).table.normal.senior, 'opus/high');
+});
+
+test('overrides that break the senior ladder are rejected', () => {
+  const flat = effectiveTable(routing, { normal: { senior: 'sonnet/medium' } });
+  assert.match(flat.warnings.join(), /senior .* слабее implementer/);
+  assert.equal(flat.table.normal.senior, 'opus/high');
+
+  assert.match(effectiveTable(routing, { normal: { implementer: 'opus/xhigh' } }).warnings.join(), /routing\.normal\.senior/);
+  assert.match(effectiveTable(routing, { normal: { senior: 'opus/xhigh' } }).warnings.join(), /reviewer .* слабее senior/);
+  assert.match(
+    effectiveTable(routing, { eco: { senior: 'opus/xhigh', reviewer: 'opus/xhigh' } }).warnings.join(),
+    /debugger .* слабее senior/,
+  );
+});
+
+test('overrides that make implementer equal to senior are kept', () => {
+  for (const [mode, implementer] of [['normal', 'opus/high'], ['max', 'opus/xhigh'], ['eco', 'sonnet/high']]) {
+    const res = effectiveTable(routing, { [mode]: { implementer } });
+    assert.deepEqual(res.warnings, [], mode);
+    assert.equal(res.table[mode].implementer, implementer, mode);
+  }
+});
+
+test('equality boundaries of the senior ladder are valid', () => {
+  assert.deepEqual(effectiveTable(routing, { normal: { senior: 'opus/high', reviewer: 'opus/high' } }).warnings, []);
+  assert.deepEqual(effectiveTable(routing, { eco: { senior: 'opus/high', reviewer: 'opus/high' } }).warnings, []);
 });

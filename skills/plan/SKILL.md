@@ -26,7 +26,13 @@ Whenever this skill says "dispatch <role>": run `forge route <role>`, then call 
      depends: -
    ```
 
-   - `role` is `implementer`, `mechanic` (mechanical edits with exact instructions) or `scout`.
+   - `role` is `implementer`, `mechanic` (mechanical edits with exact instructions), `senior` or `scout`.
+   - Use `senior` (a stronger model, same agent as implementer) when any of these holds — a subtle mistake there is costly and tests won't catch it:
+     - correctness is hard to test: concurrency, retries and idempotency, caches, state machines, equipment protocols, time and time zones;
+     - the task changes a contract others rely on: public API, DB schema together with its code, a refactor across several layers;
+     - its files fall under the profile's `risky_paths` (tier 3);
+     - the area has no tests, so `check` can't catch logic errors.
+   - `senior` is the exception: if more than a third of the tasks carry it, the tasks are too big or too vaguely described — split them.
    - Each task fits in one implementer run — roughly five files or fewer.
    - Every task has a `check` command that proves it is done.
    - Tasks with disjoint `files` and no dependency between them can run in parallel; say which groups in a line at the top of the plan.

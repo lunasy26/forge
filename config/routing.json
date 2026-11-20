@@ -5,6 +5,7 @@
     "scout": { "agent": "scout" },
     "mechanic": { "agent": "implementer" },
     "implementer": { "agent": "implementer" },
+    "senior": { "agent": "implementer" },
     "architect": { "agent": null },
     "reviewer": { "agent": "reviewer" },
     "debugger": { "agent": "debugger" }
@@ -14,6 +15,7 @@
       "scout": "haiku/low",
       "mechanic": "sonnet/low",
       "implementer": "sonnet/medium",
+      "senior": "sonnet/high",
       "architect": "sonnet/high",
       "reviewer": "sonnet/high",
       "debugger": "opus/high"
@@ -22,6 +24,7 @@
       "scout": "haiku/low",
       "mechanic": "sonnet/medium",
       "implementer": "sonnet/high",
+      "senior": "opus/high",
       "architect": "opus/high",
       "reviewer": "opus/high",
       "debugger": "fable/high"
@@ -30,6 +33,7 @@
       "scout": "sonnet/medium",
       "mechanic": "sonnet/high",
       "implementer": "opus/high",
+      "senior": "opus/xhigh",
       "architect": "opus/xhigh",
       "reviewer": "fable/high",
       "debugger": "fable/high"

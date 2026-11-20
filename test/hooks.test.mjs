@@ -46,6 +46,21 @@ test('session-start: profile summary under 600 chars, Superpowers warning', () =
   assert.ok(ctx.length <= 600, `length ${ctx.length}`);
 });
 
+test('session-start: mentions ignored routing overrides, silent for a valid profile', () => {
+  const bad = gitRepo('feature/x');
+  writeProfile(bad, { routing: { normal: { senior: 'sonnet/medium' } } });
+  const ctx = runHookScript('session-start', { cwd: bad, source: 'startup' }, { projectDir: bad })
+    .json.hookSpecificOutput.additionalContext;
+  assert.match(ctx, /routing/);
+  assert.ok(ctx.length <= 600, `length ${ctx.length}`);
+
+  const good = gitRepo('feature/y');
+  writeProfile(good, { routing: { normal: { implementer: 'opus/high' } } });
+  const ok = runHookScript('session-start', { cwd: good, source: 'startup' }, { projectDir: good })
+    .json.hookSpecificOutput.additionalContext;
+  assert.doesNotMatch(ok, /routing/);
+});
+
 test('pre-bash: deny JSON for a protected push, silence for ordinary commands', () => {
   const repo = gitRepo('main');
   const deny = runHookScript('pre-bash', { cwd: repo, tool_name: 'Bash', tool_input: { command: 'git push' } }, { projectDir: repo });
