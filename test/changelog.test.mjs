@@ -258,8 +258,11 @@ test('releaseChangelog: errors', () => {
 
 const withEntry = (text) => text.replace(/## \[Unreleased\]\r?\n/, (m) => `${m}${m.endsWith('\r\n') ? '\r\n' : '\n'}### Added\n- Новая запись\n`);
 
+// The real file's [Unreleased] holds entries between releases: empty it so the copy gets exactly one.
+const emptyUnreleased = (text) => text.replace(/(## \[Unreleased\]\r?\n)[\s\S]*?(?=^## \[\d)/m, '$1\n');
+
 test('releaseChangelog on a copy of the real forge CHANGELOG.md', () => {
-  const text = withEntry(readFileSync(FORGE, 'utf8'));
+  const text = withEntry(emptyUnreleased(readFileSync(FORGE, 'utf8')));
   const out = releaseChangelog(text, { version: '0.4.0', date: '2026-12-01' });
   const p = parseChangelog(out);
   assert.deepEqual(p.unreleased.sections, []);
