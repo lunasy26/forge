@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { emptyConfigDir, gitRepo, PLUGIN_ROOT, runHookScript, tempDir, write, writeProfile } from './helpers.mjs';
+import { emptyConfigDir, git, gitRepo, PLUGIN_ROOT, runHookScript, tempDir, write, writeProfile } from './helpers.mjs';
 
 /** A project whose "test" step passes or fails depending on the content of status.txt. */
 function projectWithCheck({ on_stop = 'full', lint = false } = {}) {
@@ -179,6 +179,149 @@ test('stop: waits while subagents are still running; off means off', () => {
   const off = projectWithCheck({ on_stop: 'off' });
   edit(off, 'a.ts');
   assert.equal(stop(off).stdout, '');
+});
+
+const PKG = { name: 'demo', scripts: { test: 'node --test' }, dependencies: { a: '1.0.0' } };
+
+/**
+ * A project with a root AGENTS.md, a committed package.json and (optionally) backend/ — in git unless `git: false`.
+ * The first Stop is already done, so the docs cursor exists.
+ */
+function docsProject({ useGit = true, docs, verify = { on_stop: 'off' }, commands, agents = '# Agents\n', backend = false } = {}) {
+  const dir = useGit ? gitRepo('feature/x') : tempDir();
+  write(dir, 'AGENTS.md', agents);
+  write(dir, 'CLAUDE.md', '@AGENTS.md\n');
+  write(dir, 'package.json', PKG);
+  if (backend) {
+    write(dir, 'backend/AGENTS.md', '# Backend\n');
+    write(dir, 'backend/package.json', PKG);
+  }
+  if (useGit) {
+    git(dir, 'add', '-A');
+    git(dir, 'commit', '-q', '-m', 'base');
+  }
+  writeProfile(dir, { ...(commands ? { commands } : {}), verify, ...(docs ? { docs } : {}) });
+  assert.equal(stop(dir).stdout, '', 'first stop only sets the cursor');
+  return dir;
+}
+
+test('stop docs: first stop sets the cursor; changed scripts remind once', () => {
+  const dir = gitRepo('feature/x');
+  write(dir, 'AGENTS.md', '# Agents\n');
+  write(dir, 'package.json', PKG);
+  git(dir, 'add', '-A');
+  git(dir, 'commit', '-q', '-m', 'base');
+  writeProfile(dir, { verify: { on_stop: 'off' } });
+  edit(dir, 'package.json', { ...PKG, scripts: { test: 'node --test', lint: 'eslint .' } });
+  assert.equal(stop(dir).stdout, '', 'no cursor yet: edits before it are not reminded about');
+  assert.equal(state(dir).docs.offset, readFileSync(join(dir, '.forge', 'edits.jsonl')).length);
+
+  edit(dir, 'package.json', { ...PKG, scripts: { test: 'node --test', build: 'tsc' } });
+  const r = stop(dir);
+  assert.equal(r.json.decision, 'block');
+  assert.match(r.json.reason, /^forge: /);
+  assert.match(r.json.reason, /package\.json \(scripts\)/);
+  assert.match(r.json.reason, /AGENTS\.md/);
+  assert.ok(r.json.reason.length <= 600);
+  assert.equal(stop(dir, { stop_hook_active: true }).stdout, '', 'no new edits → no second reminder');
+});
+
+test('stop docs: package.json dependencies alone count only without git', () => {
+  const deps = { ...PKG, dependencies: { a: '2.0.0', b: '1.0.0' } };
+  const inGit = docsProject();
+  edit(inGit, 'package.json', deps);
+  assert.equal(stop(inGit).stdout, '', 'git: scripts unchanged → no reminder');
+
+  const plain = docsProject({ useGit: false });
+  edit(plain, 'package.json', deps);
+  const r = stop(plain);
+  assert.equal(r.json.decision, 'block');
+  assert.match(r.json.reason, /package\.json/);
+});
+
+test('stop docs: an edit of the nearest agent file in the same window closes the change', () => {
+  const ci = docsProject();
+  edit(ci, '.github/workflows/x.yml', 'on: push\n');
+  edit(ci, 'AGENTS.md', '# Agents\n\nCI: x.yml\n');
+  assert.equal(stop(ci).stdout, '', 'root AGENTS.md closes everything');
+
+  const nested = docsProject({ backend: true });
+  edit(nested, 'backend/package.json', { ...PKG, scripts: { start: 'node .' } });
+  edit(nested, 'backend/AGENTS.md', '# Backend\n\nnpm start\n');
+  assert.equal(stop(nested).stdout, '', 'backend/AGENTS.md closes changes inside backend/');
+
+  const outside = docsProject({ backend: true });
+  edit(outside, 'package.json', { ...PKG, scripts: { start: 'node .' } });
+  edit(outside, 'backend/AGENTS.md', '# Backend\n\nnpm start\n');
+  const r = stop(outside);
+  assert.equal(r.json.decision, 'block', 'backend/AGENTS.md does not cover the root package.json');
+  assert.match(r.json.reason, /package\.json \(scripts\)/);
+});
+
+test('stop docs: a new top-level directory not mentioned in AGENTS.md', () => {
+  const dir = docsProject();
+  edit(dir, 'tools/gen.mjs', 'export {}\n');
+  const r = stop(dir);
+  assert.equal(r.json.decision, 'block');
+  assert.match(r.json.reason, /новый каталог tools\//);
+
+  const mentioned = docsProject({ agents: '# Agents\n\n`tools/` — генераторы\n' });
+  edit(mentioned, 'tools/gen.mjs', 'export {}\n');
+  assert.equal(stop(mentioned).stdout, '');
+
+  const existing = docsProject();
+  edit(existing, 'notes.md', 'root-level files never count\n');
+  assert.equal(stop(existing).stdout, '');
+});
+
+test('stop docs: a failing check wins; the reminder comes after the fix', () => {
+  const dir = docsProject({ commands: { test: 'node check.mjs' }, verify: { steps: ['test'], on_stop: 'full' } });
+  write(dir, 'check.mjs', "import { readFileSync } from 'node:fs';\nif (readFileSync('status.txt','utf8').trim() !== 'ok') { console.error('check failed'); process.exit(1); }\n");
+  write(dir, 'status.txt', 'fail');
+  edit(dir, 'package.json', { ...PKG, scripts: { test: 'node check.mjs' } });
+  const blocked = stop(dir);
+  assert.equal(blocked.json.decision, 'block');
+  assert.match(blocked.json.reason, /проверка перед завершением не прошла/);
+  assert.doesNotMatch(blocked.json.reason, /AGENTS\.md/);
+
+  edit(dir, 'status.txt', 'ok');
+  const r = stop(dir, { stop_hook_active: true });
+  assert.equal(r.json.decision, 'block');
+  assert.match(r.json.reason, /package\.json \(scripts\)/);
+  assert.equal(state(dir).verify.ok, true);
+});
+
+test('stop docs: the one-time "check failed" message and the reminder share one response', () => {
+  const dir = docsProject({ commands: { test: 'node -e "process.exit(1)"' }, verify: { steps: ['test'], on_stop: 'full' } });
+  edit(dir, 'package.json', { ...PKG, scripts: { x: 'y' } });
+  assert.equal(stop(dir).json.decision, 'block');
+  const r = stop(dir, { stop_hook_active: true });
+  assert.match(r.json.systemMessage, /последняя проверка не прошла/);
+  assert.equal(r.json.decision, 'block');
+  assert.match(r.json.reason, /package\.json \(scripts\)/);
+});
+
+test('stop docs: remind false and projects without AGENTS.md stay silent', () => {
+  const off = docsProject({ docs: { remind: false } });
+  edit(off, 'package.json', { ...PKG, scripts: { x: 'y' } });
+  assert.equal(stop(off).stdout, '');
+
+  const none = docsProject();
+  git(none, 'rm', '-q', 'AGENTS.md');
+  edit(none, 'package.json', { ...PKG, scripts: { x: 'y' } });
+  assert.equal(stop(none).stdout, '');
+});
+
+test('stop docs: a truncated log is read from the start, one reminder', () => {
+  const dir = docsProject();
+  edit(dir, 'package.json', { ...PKG, scripts: { x: 'y' } });
+  const s = state(dir);
+  s.docs.offset = 1e6;
+  writeFileSync(join(dir, '.forge', 'state.json'), JSON.stringify(s));
+  const r = stop(dir);
+  assert.equal(r.json.decision, 'block');
+  assert.match(r.json.reason, /package\.json \(scripts\)/);
+  assert.equal(stop(dir).stdout, '');
 });
 
 test('post-batch: lints files edited since the last batch, once', () => {
