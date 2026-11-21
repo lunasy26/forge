@@ -6,7 +6,7 @@ import { initLang } from '../lib/lang.mjs';
 import { loadProfile } from '../lib/profile.mjs';
 import { loadState, updateState } from '../lib/state.mjs';
 import { runHook } from '../lib/util.mjs';
-import { failureReport, runSteps } from '../lib/verify.mjs';
+import { failureReport, runSteps, shellMissingNotice } from '../lib/verify.mjs';
 
 runHook('post-batch', async (input, root) => {
   initLang(root, input);
@@ -25,6 +25,12 @@ runHook('post-batch', async (input, root) => {
   if (!files.length) return null;
   const result = runSteps(root, profile, steps, { files, timeoutSec: 150 });
   if (result.ok) return null;
+  // No shell (Windows without Git Bash) is an environment problem the model cannot fix: skip quietly and
+  // tell the user once instead of sending the model after a failure that is not in its code.
+  if (result.shellMissing) {
+    const notice = shellMissingNotice(root);
+    return notice ? { systemMessage: notice } : null;
+  }
   // decision:'block' on PostToolBatch stops the loop before the next model call and shows the reason as a
   // warning, so lint errors would not be acted on in this turn; additionalContext reaches the model now.
   return {

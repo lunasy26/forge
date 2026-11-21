@@ -544,3 +544,61 @@ test('PowerShell and cmd started from Bash are checked with the PowerShell rules
   }
   assert.match(checkBash('pwsh -EncodedCommand ZQBjAGgAbwA=', ctx()).reason, /EncodedCommand/);
 });
+
+test('env -S is split with env rules, watch options and nested wrappers do not hide a command', () => {
+  for (const cmd of [
+    // env -S: \_ separates words, ; is an ordinary character, leading words are env options again
+    "env -S 'git\\_push\\_--force'",
+    "env -S 'git push -o ; --force'",
+    "env -S 'git push -o' ';' --force",
+    "env -S '-i git push --force'",
+    "env -S '-- git push --force'",
+    "env -S'-v' git push --force",
+    "env -S 'git push --force'",
+    // watch: -w takes no value, -q/--equexit takes one; an unknown option does not hide the command
+    'watch -w git push --force origin main',
+    'watch -q 5 git push --force',
+    'watch --equexit 5 git push --force',
+    'watch --made-up 5 git push --force',
+    // nested wrappers after a known or an unknown option
+    "env -P /usr/bin env -S 'git push --force'",
+    "env -P /usr/bin watch 'git push --force'",
+    "env --default-signal env -u git bash -c 'git push --force'",
+    "env --made-up env -u git bash -c 'git push --force'",
+    "sudo --made-up value env -u git bash -c 'git push --force'",
+    "sudo --made-up value watch 'git push --force'",
+  ]) {
+    assert.equal(decide(cmd), 'deny', cmd);
+  }
+  // an -S string env cannot split asks instead of passing
+  for (const cmd of ["env -S \"'git push --force\"", "env -S 'git push \"--force'", "env -S 'git push ${F'"]) {
+    assert.equal(decide(cmd), 'ask', cmd);
+  }
+  for (const cmd of [
+    "env -S 'node --inspect app.js'",
+    "env -S 'FOO=1 npm test'",
+    "env -S 'echo git push --force'",
+    'watch -n 5 git status',
+    'watch -w ls',
+    'watch -q 3 make',
+    'env -P /usr/bin ls',
+    'env -u FOO npm test',
+    'env --default-signal npm test',
+    'env -u git ls',
+  ]) {
+    assert.equal(decide(cmd), 'allow', cmd);
+  }
+});
+
+test('the wrapper safety net stays linear on long wrapper chains', () => {
+  const n = Math.ceil(200_000 / 11);
+  for (const cmd of [
+    'env --x '.repeat(n) + 'ls '.repeat(n) + '; ' + P,
+    'env ' + '-S -i '.repeat(n) + '; ' + P,
+    'sudo --x v '.repeat(n) + P,
+  ]) {
+    const { decision, ms } = timed(cmd);
+    assert.equal(decision, 'deny', cmd.slice(0, 40));
+    assert.ok(ms < 500, `${ms.toFixed(0)} ms for ${cmd.slice(0, 40)}`);
+  }
+});

@@ -128,11 +128,62 @@ test('shell: wrapper options with arguments are skipped per wrapper', () => {
   assert.deepEqual(stripped('echo -n git push'), ['echo', '-n', 'git', 'push']);
 });
 
-test('shell: env -S and watch hand their string to a shell', () => {
+test('shell: watch hands its line to a shell', () => {
   const stripped = (src) => stripWrappers(splitCommands(src)[0]).map((w) => w.text);
-  assert.deepEqual(stripped('env -S "git push origin main"'), ['sh', '-c', 'git push origin main']);
   assert.deepEqual(stripped('watch -n 2 git status'), ['sh', '-c', 'git status']);
   assert.deepEqual(stripped("watch 'git push origin main; ls'"), ['sh', '-c', 'git push origin main; ls']);
+  // procps-ng: -w/--no-wrap takes no value, -q/--equexit takes one
+  assert.deepEqual(stripped('watch -w git push'), ['sh', '-c', 'git push']);
+  assert.deepEqual(stripped('watch --no-wrap git push'), ['sh', '-c', 'git push']);
+  assert.deepEqual(stripped('watch -q 5 git push'), ['sh', '-c', 'git push']);
+  assert.deepEqual(stripped('watch --equexit 5 git push'), ['sh', '-c', 'git push']);
+  assert.deepEqual(stripped('watch -n 5 -q 3 -w ls'), ['sh', '-c', 'ls']);
+  // an unknown option: its value is not taken for the command when a guarded one follows
+  assert.deepEqual(stripped('watch --made-up 5 git push'), ['sh', '-c', 'git push']);
+  assert.deepEqual(stripped('watch --made-up 5 ls'), ['sh', '-c', '5 ls']);
+});
+
+test('shell: env -S is split with env rules and its words are spliced in place', () => {
+  const stripped = (src) => stripWrappers(splitCommands(src)[0]).map((w) => w.text);
+  const push = ['git', 'push', '--force'];
+  for (const src of [
+    'env -S "git push --force"',
+    "env -S 'git\\_push\\_--force'",
+    "env --split-string='git push --force'",
+    "env -S'git push' --force",
+    "env -S '-i git push --force'",
+    "env -S '-- git push --force'",
+    "env -S'-v' git push --force",
+    "env -vS 'FOO=1 git push' --force",
+    "env -S '-S \"git push\"' --force",
+    "env -S 'git push \"--force\"  # a comment'",
+    "env -S 'g\\it push --force'",
+  ]) {
+    assert.deepEqual(stripped(src), push, src);
+  }
+  // ; | & are ordinary characters for env, not separators
+  assert.deepEqual(stripped("env -S 'git push -o ; --force'"), ['git', 'push', '-o', ';', '--force']);
+  assert.deepEqual(stripped("env -S 'git push -o' ';' --force"), ['git', 'push', '-o', ';', '--force']);
+  // \_ is a space inside double quotes, single quotes keep backslashes except \\ and \'
+  const envS = (value) => stripWrappers([{ text: 'env' }, { text: '-S' }, { text: value }]).map((w) => w.text);
+  assert.deepEqual(envS(`echo "a\\_b" 'c\\'d' 'e\\\\f\\g' \\#h`), ['echo', 'a b', "c'd", 'e\\f\\g', '#h']);
+  assert.deepEqual(envS('echo "\\t\\"\\$x"\\_y'), ['echo', '\t"$x', 'y']);
+  assert.deepEqual(envS("printf '' x#y #z"), ['printf', '', 'x#y']);
+  assert.deepEqual(stripped("env -S \"echo 'a\\nb'\""), ['echo', 'a\\nb']);
+  // ${VAR} is expanded by env: the word is dynamic; \c ends the string
+  const [cmd] = splitCommands("env -S 'node ${APP}/x.js \\c git push --force' --inspect");
+  const words = stripWrappers(cmd);
+  assert.deepEqual(words.map((w) => w.text), ['node', '${APP}/x.js', '--inspect']);
+  assert.deepEqual(words.map((w) => w.dynamic), [false, true, false]);
+  // a dynamic source word gives dynamic words
+  assert.ok(stripWrappers(splitCommands('env -S "$CMD x"')[0]).every((w) => w.dynamic));
+  assert.deepEqual(stripped("env -S 'node --inspect app.js'"), ['node', '--inspect', 'app.js']);
+  assert.deepEqual(stripped("env -S 'FOO=1 npm test'"), ['npm', 'test']);
+  // what env cannot split is handed over as an unterminated substitution, so the guard asks
+  for (const src of ["env -S \"git push 'x\"", "env -S 'git push \"x'", "env -S 'git push \\'", "env -S 'echo ${X'"]) {
+    const [, , script] = stripWrappers(splitCommands(src)[0]);
+    assert.ok(splitCommands(script.text).some((c) => c.unterminated), src);
+  }
 });
 
 test('shell: safety net — an unknown option before a guarded command does not hide it', () => {
@@ -146,6 +197,32 @@ test('shell: safety net — an unknown option before a guarded command does not 
   // known options: no jump, the guarded word stays an ordinary argument
   assert.deepEqual(stripped('sudo -E echo git push'), ['echo', 'git', 'push']);
   assert.deepEqual(stripped('sudo --made-up value echo hi'), ['value', 'echo', 'hi']);
+  // the jump also lands on a nested wrapper, which is then stripped with its own options
+  assert.deepEqual(stripped('sudo --made-up value env -u git bash -c x'), ['bash', '-c', 'x']);
+  assert.deepEqual(stripped("sudo --made-up value env -S 'git push'"), ['git', 'push']);
+  assert.deepEqual(stripped('env --made-up env -u git bash -c x'), ['bash', '-c', 'x']);
+  assert.deepEqual(stripped("env --made-up /usr/bin watch 'git push'"), ['sh', '-c', 'git push']);
+  // known env options: macOS -P altpath, GNU signal options
+  assert.deepEqual(stripped('env -P /usr/bin git push'), ['git', 'push']);
+  assert.deepEqual(stripped('env --default-signal env -u git bash -c x'), ['bash', '-c', 'x']);
+  assert.deepEqual(stripped('env --ignore-signal=INT npm test'), ['npm', 'test']);
+  // words named like Object.prototype members are not wrappers
+  assert.deepEqual(stripped('constructor git push'), ['constructor', 'git', 'push']);
+  assert.deepEqual(stripped('toString --x git push'), ['toString', '--x', 'git', 'push']);
+});
+
+test('shell: the wrapper safety net runs in linear time', () => {
+  for (const n of [2000, 20000]) {
+    const src = 'env --x '.repeat(n) + 'ls '.repeat(n) + 'git push';
+    const started = performance.now();
+    const words = stripWrappers(splitCommands(src)[0]);
+    const ms = performance.now() - started;
+    assert.deepEqual(words.map((w) => w.text), ['git', 'push']);
+    assert.ok(ms < 500, `${ms.toFixed(0)} ms for n=${n}`);
+  }
+  const started = performance.now();
+  stripWrappers(splitCommands('env ' + '-S -i '.repeat(20000) + 'ls')[0]);
+  assert.ok(performance.now() - started < 500, 'chained env -S');
 });
 
 const subs = (src) => splitCommands(src).flatMap((c) => c.subs);

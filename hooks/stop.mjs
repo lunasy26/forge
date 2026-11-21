@@ -11,7 +11,7 @@ import { loadProfile } from '../lib/profile.mjs';
 import { releaseMemory, releaseReminder, rememberRelease } from '../lib/release.mjs';
 import { loadState, updateState } from '../lib/state.mjs';
 import { logError, runHook } from '../lib/util.mjs';
-import { failureReport } from '../lib/verify.mjs';
+import { failureReport, shellMissingNotice } from '../lib/verify.mjs';
 
 /** After this many consecutive failures the hook stops blocking and tells the user instead. */
 export const GIVE_UP_AFTER = 3;
@@ -39,6 +39,11 @@ function verifyOnStop(input, root, profile) {
 
   const { result, streak } = verifyAndRecord(root, profile, { fast: profile.verify.on_stop === 'fast' });
   if (result.ok) return null;
+  // No shell (Windows without Git Bash): nothing the model can fix — no block, no debugger, no streak; tell the user once.
+  if (result.shellMissing) {
+    const notice = shellMissingNotice(root);
+    return notice ? { systemMessage: notice } : null;
+  }
 
   if (input.stop_hook_active && streak >= GIVE_UP_AFTER) {
     updateState(root, (s) => {

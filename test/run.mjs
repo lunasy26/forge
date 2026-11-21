@@ -5,7 +5,7 @@
 // Usage: node test/run.mjs [node --test options] [files...]
 //   - arguments ending in .mjs are test files; with none, every test/*.test.mjs is run
 //   - everything else (e.g. --test-name-pattern "force") is passed to `node --test` before the files
-//   - FORGE_LANG defaults to ru; the *-en tests pin the language themselves
+//   - FORGE_LANG is always ru (an exported value is ignored); the *-en tests pin the language themselves
 import { spawnSync } from 'node:child_process';
 import { readdirSync } from 'node:fs';
 import { dirname, join } from 'node:path';
@@ -26,7 +26,7 @@ if (files.length === 0) {
 }
 
 const env = { ...process.env };
-if (!env.FORGE_LANG) env.FORGE_LANG = 'ru';
+env.FORGE_LANG = 'ru'; // always: an exported FORGE_LANG=en must not turn the Russian message tests red
 
 const res = spawnSync(process.execPath, ['--test', ...options, ...files], { stdio: 'inherit', env });
 process.exit(res.status ?? 1);

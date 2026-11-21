@@ -314,3 +314,195 @@ test('pwsh: garbage input never throws', () => {
     assert.ok(['allow', 'ask', 'deny'].includes(v.decision), cmd);
   }
 });
+
+test('pwsh: Set-Location inside a block, group or iex leaves the directory unknown', () => {
+  for (const cmd of [
+    'if (Test-Path ..) { cd .. }; Remove-Item -Recurse -Force project',
+    '& { Set-Location C:\\Users\\me }; Remove-Item -Recurse -Force Documents',
+    '(Set-Location ~); Remove-Item -Recurse Documents',
+    'Get-ChildItem | ForEach-Object { Push-Location .. }; Remove-Item -Recurse project',
+    'if ($x) { if ($y) { sl .. } }; Remove-Item -Recurse project',
+    "iex 'cd ..'; Remove-Item -Recurse project",
+    'Push-Location sub; & { Pop-Location }; Pop-Location; Remove-Item -Recurse project',
+  ]) {
+    assert.equal(win(cmd).decision, 'ask', cmd);
+  }
+  assert.match(win('& { cd .. }; Remove-Item -Recurse project').reason, /во время выполнения/);
+  for (const cmd of [
+    'if (x) { Write-Host hi }; Remove-Item -Recurse .\\build',
+    '& { cd .. }; Remove-Item -Recurse C:\\work\\project\\build',
+    'Get-ChildItem | ForEach-Object { $_.Name }; Remove-Item -Recurse build',
+    "iex 'Get-Date'; Remove-Item -Recurse build",
+    'pwsh -c "cd .."; Remove-Item -Recurse build',
+  ]) {
+    assert.equal(win(cmd).decision, 'allow', cmd);
+  }
+  // an absolute target is still judged on its own
+  assert.equal(win('& { cd .. }; Remove-Item -Recurse C:\\Windows').decision, 'ask');
+});
+
+test('pwsh: sudo, env, nohup and timeout are stripped before the check', () => {
+  assert.equal(win('sudo git push origin main').decision, 'deny');
+  assert.equal(win('sudo Remove-Item -Recurse C:\\').decision, 'ask');
+  assert.equal(win('sudo --inline git push -f').decision, 'deny');
+  for (const cmd of ['sudo rm -rf /', 'env rm -rf /', 'nohup rm -rf ~', 'sudo -u root rm -rf /etc']) {
+    assert.equal(nix(cmd).decision, 'ask', cmd);
+  }
+  for (const cmd of ['timeout 5 git push -f', 'env FOO=1 git push --force', 'nohup git push origin main']) {
+    assert.equal(nix(cmd).decision, 'deny', cmd);
+  }
+  for (const cmd of ['sudo npm install -g x', 'sudo Remove-Item -Recurse .\\build', 'timeout /t 5', 'env | Sort-Object']) {
+    assert.equal(win(cmd).decision, 'allow', cmd);
+  }
+  assert.equal(nix('sudo rm -rf build').decision, 'allow');
+  assert.equal(nix('nohup npm start').decision, 'allow');
+  // if/while are keywords, not wrappers: the block after them is checked, the condition is not a command
+  assert.equal(win('if ($x) { git commit -m "push later" }').decision, 'allow');
+});
+
+test('pwsh: splatting and array or group arguments cannot hide flags', () => {
+  for (const cmd of [
+    "$p=@{Recurse=$true; Path='C:\\'}; Remove-Item @p",
+    'Remove-Item @p',
+    'rm -Force @args',
+    'Remove-Item -Recurse:$true @p',
+    'git push @p',
+    'git push @args origin',
+    'git @p',
+    'git commit @opts -m x',
+    'git reset @a',
+    'git push origin (Get-Branch)',
+    'git push $remote @(Get-Refs)',
+    "Start-Process @p",
+    'Set-Alias @p',
+  ]) {
+    assert.equal(win(cmd).decision, 'ask', cmd);
+  }
+  assert.match(win('Remove-Item @p').reason, /splatting/);
+  assert.match(win('git push @p').reason, /git push.*@p/);
+  // literal arrays and groups are read through
+  for (const cmd of ["git @('push','origin','main')", "git push origin ('main')", "git push ('-f')", 'git push @("--force")', "git @('commit', '--no-verify')"]) {
+    assert.equal(both(cmd), 'deny', cmd);
+  }
+  for (const cmd of [
+    "$p=@{Path='.\\x'}; Get-ChildItem @p",
+    "git @('status')",
+    "git push origin ('feature/x')",
+    'git log @p',
+    'git status @args',
+    'git push origin $branch',
+    'Remove-Item -Recurse:$false @p',
+    'Remove-Item -Recurse: $false @p',
+    'Copy-Item @p',
+  ]) {
+    assert.equal(win(cmd).decision, 'allow', cmd);
+  }
+});
+
+test('pwsh: return, throw and exit run the command after them', () => {
+  for (const cmd of ['return git push origin main', 'throw git push origin main', 'exit git push -f', 'function f { return git push -f }; f', 'RETURN git push -f', '$x = return git push -f']) {
+    assert.equal(both(cmd), 'deny', cmd);
+  }
+  assert.equal(win('return Remove-Item -Recurse C:\\').decision, 'ask');
+  for (const cmd of ['return 5', 'return', 'exit 1', 'throw "push failed"', 'function f { return $x }', 'Write-Host return git push -f']) {
+    assert.equal(both(cmd), 'allow', cmd);
+  }
+});
+
+test('pwsh -File - reads the script from the pipeline', () => {
+  for (const cmd of ["'git push -f' | pwsh -File -", 'pwsh -f -', 'powershell -NoProfile -File -', 'pwsh -File: -', 'pwsh -File:-']) {
+    assert.equal(both(cmd), 'ask', cmd);
+  }
+  assert.match(win('pwsh -f -').reason, /конвейер/);
+  for (const cmd of ['pwsh -File build.ps1', 'pwsh -File: build.ps1', 'pwsh -f build.ps1 -']) {
+    assert.equal(both(cmd), 'allow', cmd);
+  }
+});
+
+test('pwsh: aliases defined through the alias: drive ask like Set-Alias', () => {
+  for (const cmd of [
+    'New-Item alias:g -Value git; g push origin main',
+    'Set-Item alias:g git; g push origin main',
+    'ni alias:g -Value git',
+    'si alias:\\g git',
+    'New-Item -Path Alias::x -Value Remove-Item',
+    'New-Item -Path alias: -Name g -Value git',
+    'Set-Item -Path alias:g -Value $cmd',
+    "${alias:g} = 'git'",
+    '$alias:g = "git"',
+    '$alias:r = "Remove-Item"',
+    "'git' | New-Item alias:g",
+  ]) {
+    assert.equal(win(cmd).decision, 'ask', cmd);
+  }
+  assert.match(win('Set-Item alias:g git').reason, /псевдоним для «git»/);
+  for (const cmd of [
+    'New-Item alias:ll -Value Get-ChildItem',
+    'Set-Item alias:ll Get-ChildItem',
+    "${alias:ll} = 'Get-ChildItem'",
+    'New-Item -ItemType Directory build',
+    'New-Item .\\git -ItemType File',
+    'Set-Item env:GIT_DIR x',
+    'ni git.txt -Value git',
+    '$x = "git"',
+  ]) {
+    assert.equal(win(cmd).decision, 'allow', cmd);
+  }
+});
+
+test('pwsh: code built through the PowerShell API asks', () => {
+  for (const cmd of [
+    "[powershell]::Create().AddScript('git push -f').Invoke()",
+    "[Management.Automation.ScriptBlock]::Create('git push -f')",
+    "[System.Management.Automation.ScriptBlock]::Create('x')",
+    "[Automation.ScriptBlock]::Create('x')",
+    "$ps = [powershell]::Create(); $ps.AddCommand('git').AddArgument('push').Invoke()",
+    "[PowerShell]::Create().AddScript( 'x' )",
+  ]) {
+    assert.equal(win(cmd).decision, 'ask', cmd);
+  }
+  assert.match(win("[powershell]::Create().AddScript('x').Invoke()").reason, /AddScript/);
+  for (const cmd of ["$list.Add('git push')", '[powershell]::Create()', "$sb.AppendLine('x')", '$x.AddRange(@(1,2))']) {
+    assert.equal(win(cmd).decision, 'allow', cmd);
+  }
+});
+
+test('pwsh: -WorkingDirectory is where the nested command runs', () => {
+  const branch = (cwd) => (/[\\/]other$/.test(cwd) ? 'main' : 'feature/x');
+  for (const cmd of [
+    "Start-Process git -ArgumentList 'push' -WorkingDirectory ..\\other",
+    "Start-Process git -WorkingDirectory C:\\work\\other -ArgumentList 'push'",
+    'pwsh -WorkingDirectory ..\\other -c "git push"',
+    'pwsh -wd ..\\other -c "git push"',
+    'pwsh -WorkingDirectory:..\\other -c "git push"',
+  ]) {
+    assert.equal(win(cmd, { currentBranch: branch }).decision, 'deny', cmd);
+  }
+  assert.equal(nix('pwsh -wd ../other -c "git push"', { currentBranch: branch }).decision, 'deny');
+  // relative deletes in a run-time or relative-from-unknown directory ask
+  for (const cmd of [
+    "Start-Process pwsh -ArgumentList '-c','Remove-Item -Recurse project' -WorkingDirectory ..",
+    'pwsh -wd .. -c "Remove-Item -Recurse project"',
+    'pwsh -wd $dir -c "Remove-Item -Recurse build"',
+  ]) {
+    assert.equal(win(cmd).decision, 'ask', cmd);
+  }
+  for (const cmd of [
+    'Start-Process notepad -WorkingDirectory C:\\x',
+    "Start-Process git -ArgumentList 'push' -WorkingDirectory .\\sub",
+    'pwsh -wd .\\sub -c "git push"',
+    'pwsh -WindowStyle Hidden -c "git status"',
+  ]) {
+    assert.equal(win(cmd, { currentBranch: branch }).decision, 'allow', cmd);
+  }
+});
+
+test('pwsh Remove-Item: an empty value after the colon takes the next word', () => {
+  for (const cmd of ['Remove-Item -Path: build -Recurse', 'Remove-Item -LiteralPath: .\\out -Recurse', 'Remove-Item -Recurse: $true build']) {
+    assert.equal(win(cmd).decision, 'allow', cmd);
+  }
+  for (const cmd of ['Remove-Item -Path: C:\\Windows -Recurse', 'Remove-Item -Recurse -Path: ..', 'Remove-Item -Recurse: C:\\']) {
+    assert.equal(win(cmd).decision, 'ask', cmd);
+  }
+  assert.equal(win('Remove-Item -Recurse: $false C:\\').decision, 'allow');
+});
