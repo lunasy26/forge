@@ -39,7 +39,7 @@ test('every Bash guard verdict reads in English', () => {
       ['git commit --no-verify -m x', 'deny', /pre-commit checks — forbidden/],
       ['git commit -n -m x', 'deny', /-n \(--no-verify\) bypasses/],
       ['git reset --hard', 'ask', /wipes uncommitted changes\. Confirm\./],
-      ['rm -rf /etc/x', 'ask', /rm -r outside the project.*\/etc\/x → \/etc\/x.*Confirm\./],
+      ['rm -rf /etc/x', 'ask', /rm -r outside the project.*\/etc\/x → .*etc[\\/]x.*Confirm\./],
       ['rm -rf $(pwd)/build', 'ask', /\(path is only known at run time\)/],
       ['echo $(git status', 'ask', /unterminated substitution/],
       ['echo $(echo $(echo $(echo $(git status))))', 'ask', /nested too deeply/],

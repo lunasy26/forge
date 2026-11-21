@@ -100,7 +100,7 @@ test('forge doctor in a worktree names the main checkout profile', () => {
   for (const env of [{}, { CLAUDE_PROJECT_DIR: wt }]) {
     const r = runCli(['doctor'], { cwd: wt, env });
     assert.equal(r.code, 0);
-    assert.match(r.stdout, new RegExp(`✓ Проект: ${wt}\n`));
+    assert.ok(r.stdout.includes(`✓ Проект: ${wt}\n`), r.stdout);
     assert.ok(r.stdout.includes(`✓ Профиль из основного checkout ${main}`), r.stdout);
     assert.match(r.stdout, /✓ Профиль валиден/);
     assert.doesNotMatch(r.stdout, /Профиля нет/);

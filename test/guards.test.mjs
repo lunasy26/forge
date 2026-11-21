@@ -112,7 +112,7 @@ test('rm -r: inside the project is fine, outside or unpredictable asks', () => {
   assert.equal(decide('rm -rf node_modules dist'), 'allow');
   assert.equal(decide('rm -r build/*'), 'allow');
   assert.equal(decide('rm file.txt'), 'allow');
-  assert.equal(decide(`rm -rf ${join(tmpdir(), 'forge-scratch')}`), 'allow');
+  assert.equal(decide(`rm -rf '${join(tmpdir(), 'forge-scratch')}'`), 'allow');
   for (const cmd of ['rm -rf /', 'rm -rf ~', 'rm -rf "$DIR"', 'rm -rf ../other', 'rm -rf *', 'rm -rf .', 'rm -Rf /etc']) {
     assert.equal(decide(cmd), 'ask', cmd);
   }
