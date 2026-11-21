@@ -1,6 +1,6 @@
 {
   "name": "forge-dev",
-  "owner": { "name": "forge" },
+  "owner": { "name": "lunasy26" },
   "description": "Marketplace for the forge plugin.",
   "plugins": [
     {

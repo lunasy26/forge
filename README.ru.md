@@ -81,7 +81,9 @@ flowchart TD
 /plugin install forge@forge-dev
 ```
 
-`forge-dev` — имя маркетплейса из `.claude-plugin/marketplace.json`: репозиторий сам себе маркетплейс. Подробнее — [маркетплейсы плагинов](https://code.claude.com/docs/ru/plugin-marketplaces) в документации Claude Code.
+`forge-dev` — имя маркетплейса из `.claude-plugin/marketplace.json`: репозиторий сам себе маркетплейс. Подробнее — [установка плагинов](https://code.claude.com/docs/ru/discover-plugins) и [маркетплейсы плагинов](https://code.claude.com/docs/ru/plugin-marketplaces) в документации Claude Code.
+
+Обновление: у сторонних маркетплейсов автообновление по умолчанию выключено. Обновите список командой `/plugin marketplace update forge-dev`, затем сам плагин — `claude plugin update forge@forge-dev` в оболочке (или **Update marketplace** на вкладке **Marketplaces** в `/plugin`) и выполните `/reload-plugins`.
 
 ### Локальная разработка
 

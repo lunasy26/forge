@@ -81,7 +81,9 @@ The repository is public, no credentials needed. In Claude Code:
 /plugin install forge@forge-dev
 ```
 
-`forge-dev` is the marketplace name from `.claude-plugin/marketplace.json`: the repository is its own marketplace. See [Plugin marketplaces](https://code.claude.com/docs/en/plugin-marketplaces) in the Claude Code docs.
+`forge-dev` is the marketplace name from `.claude-plugin/marketplace.json`: the repository is its own marketplace. See [Discover and install plugins](https://code.claude.com/docs/en/discover-plugins) and [Plugin marketplaces](https://code.claude.com/docs/en/plugin-marketplaces) in the Claude Code docs.
+
+Updating: third-party marketplaces have auto-update off by default. Refresh the listing with `/plugin marketplace update forge-dev`, then update the plugin itself with `claude plugin update forge@forge-dev` in your shell (or **Update marketplace** on the **Marketplaces** tab of `/plugin`), and run `/reload-plugins`.
 
 ### Local development
 

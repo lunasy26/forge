@@ -7,9 +7,9 @@ import {
 } from '../lib/changelog.mjs';
 import * as semver from '../lib/semver.mjs';
 
-// Snapshots of two real changelogs: the tests never read live files (they change with every release).
+// Snapshots of two changelogs (forge: real, service: synthetic): the tests never read live files (they change with every release).
 const FORGE = new URL('./fixtures/forge-CHANGELOG.md', import.meta.url);
-const service = new URL('./fixtures/service-CHANGELOG.md', import.meta.url);
+const SERVICE = new URL('./fixtures/service-CHANGELOG.md', import.meta.url);
 const codes = (issues) => issues.map((i) => i.code);
 const names = (sections) => sections.map((s) => s.name);
 
@@ -107,8 +107,8 @@ test('fixture: forge CHANGELOG.md parses', () => {
   assert.deepEqual(codes(checkChangelog(text)).filter((c) => c !== 'bad-heading'), []);
 });
 
-test('fixture: service-app CHANGELOG.md parses', () => {
-  const text = readFileSync(service, 'utf8');
+test('fixture: service CHANGELOG.md parses (custom section, no footer)', () => {
+  const text = readFileSync(SERVICE, 'utf8');
   const p = parseChangelog(text);
   assert.ok(p.unreleased);
   assert.ok(p.releases.length >= 2);
@@ -337,8 +337,8 @@ test('releaseChangelog on a copy of the forge fixture', () => {
   assert.ok(out.includes(oldTail.slice(0, oldTail.indexOf('[Unreleased]: '))));
 });
 
-test('releaseChangelog on a copy of the service-app fixture', () => {
-  const original = readFileSync(service, 'utf8');
+test('releaseChangelog on a copy of the service fixture', () => {
+  const original = readFileSync(SERVICE, 'utf8');
   const before = parseChangelog(original);
   const next = bumpVersion(before.releases[0].version, 'minor');
   const out = releaseChangelog(withEntry(original), { version: next, date: '2999-12-01' });
