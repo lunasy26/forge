@@ -211,3 +211,11 @@ test('win32 wsl: the Linux command line is checked with the Bash rules', () => {
   assert.equal(decide('wsl git push', { currentBranch: () => 'main' }), 'deny');
   assert.equal(decide('wsl git push'), 'allow');
 });
+
+test('win32: Git Bash /tmp and /c/ paths stay known after a cd to a run-time directory', () => {
+  const c = { cwd: 'C:\\work\\project', root: 'C:\\work\\project', protectedBranches: ['main'], currentBranch: () => 'feature/x', platform: 'win32', homedir: 'C:\\Users\\me', tmpdir: 'C:\\Users\\me\\AppData\\Local\\Temp' };
+  assert.equal(checkBash('cd $x && rm -rf /tmp/build', c).decision, 'allow');
+  assert.equal(checkBash('cd $x && rm -rf /c/work/project/build', c).decision, 'allow');
+  assert.equal(checkBash('cd $x && rm -rf /c/Windows', c).decision, 'ask');
+  assert.equal(checkBash('cd $x && rm -rf build', c).decision, 'ask');
+});

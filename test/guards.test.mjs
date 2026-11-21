@@ -700,7 +700,8 @@ test('git push without a branch in a directory known only at run time asks', () 
   for (const cmd of [
     'cd $x; git push origin feature/x',
     'cd $x; git status',
-    'cd $x; cd /work/project; git push',
+    // in Git Bash /work/project is under the Git install, not a known place: POSIX only
+    ...(process.platform === 'win32' ? [] : ['cd $x; cd /work/project; git push']),
     'cd -P /work/project && git push',
     'cd -- sub && git push',
     'pushd sub && git push && popd',
