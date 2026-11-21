@@ -165,3 +165,12 @@ test('release --yes: success lines are English', () => {
   assert.match(r.stdout, /^Push: git push origin main && git push origin v0\.2\.0$/m);
   assert.match(readFileSync(join(dir, 'CHANGELOG.md'), 'utf8'), /## \[0\.2\.0\] - 2026-03-04/);
 });
+
+test('doctor: model environment lines are English', () => {
+  const dir = gitRepo();
+  writeProfile(dir, {});
+  const clean = { ANTHROPIC_BASE_URL: '', CLAUDE_CODE_USE_BEDROCK: '', CLAUDE_CODE_USE_VERTEX: '', CLAUDE_CODE_USE_FOUNDRY: '', CLAUDE_CODE_SUBAGENT_MODEL: '', CLAUDE_CODE_SUBAGENT_MODEL_FORCE: '', CLAUDE_CODE_EFFORT_LEVEL: '', ANTHROPIC_DEFAULT_HAIKU_MODEL: '', ANTHROPIC_DEFAULT_SONNET_MODEL: '', ANTHROPIC_DEFAULT_OPUS_MODEL: '', ANTHROPIC_DEFAULT_FABLE_MODEL: '' };
+  assert.match(runCli(['doctor'], { cwd: dir, env: clean }).stdout, /^✓ Models: Anthropic directly$/m);
+  const r = runCli(['doctor'], { cwd: dir, env: { ...clean, CLAUDE_CODE_EFFORT_LEVEL: 'low' } });
+  assert.match(r.stdout, /^! Models: CLAUDE_CODE_EFFORT_LEVEL=low is set/m);
+});

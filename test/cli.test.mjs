@@ -545,3 +545,58 @@ test('release --yes: a failing tag after a successful commit undoes the commit a
   assert.equal(readFileSync(join(dir, 'package.json'), 'utf8'), pkg);
   assert.equal(readFileSync(join(dir, 'README.md'), 'utf8'), readme);
 });
+
+// ---- doctor: model environment ----
+
+const CLEAN_MODEL_ENV = {
+  ANTHROPIC_BASE_URL: '',
+  CLAUDE_CODE_USE_BEDROCK: '',
+  CLAUDE_CODE_USE_VERTEX: '',
+  CLAUDE_CODE_USE_FOUNDRY: '',
+  CLAUDE_CODE_SUBAGENT_MODEL: '',
+  CLAUDE_CODE_SUBAGENT_MODEL_FORCE: '',
+  CLAUDE_CODE_EFFORT_LEVEL: '',
+  ANTHROPIC_DEFAULT_HAIKU_MODEL: '',
+  ANTHROPIC_DEFAULT_SONNET_MODEL: '',
+  ANTHROPIC_DEFAULT_OPUS_MODEL: '',
+  ANTHROPIC_DEFAULT_FABLE_MODEL: '',
+};
+
+test('doctor: clean model environment prints the ok line after the routing line', () => {
+  const dir = gitRepo();
+  writeProfile(dir, {});
+  const r = runCli(['doctor'], { cwd: dir, env: CLEAN_MODEL_ENV });
+  assert.equal(r.code, 0);
+  assert.match(r.stdout, /^✓ Таблица маршрутизации корректна\n✓ Модели: Anthropic напрямую$/m);
+});
+
+test('doctor: warns about a forced subagent model and a gateway without mappings; exit code stays 0', () => {
+  const dir = gitRepo();
+  writeProfile(dir, {});
+  const env = { ...CLEAN_MODEL_ENV, CLAUDE_CODE_SUBAGENT_MODEL_FORCE: '1', CLAUDE_CODE_SUBAGENT_MODEL: 'haiku', ANTHROPIC_BASE_URL: 'https://llm.example.com' };
+  const r = runCli(['doctor'], { cwd: dir, env });
+  assert.equal(r.code, 0);
+  assert.match(r.stdout, /^! Модели: включён CLAUDE_CODE_SUBAGENT_MODEL_FORCE — все субагенты на одной модели \(haiku\)/m);
+  assert.match(r.stdout, /^! Модели: шлюз llm\.example\.com, но для псевдонимов haiku, sonnet, opus, fable нет отображения/m);
+  assert.doesNotMatch(r.stdout, /✓ Модели:/);
+});
+
+test('doctor: model aliases come from the current mode (no fable in eco) and the effort override is reported', () => {
+  const dir = gitRepo();
+  writeProfile(dir, { mode: 'eco' });
+  const env = { ...CLEAN_MODEL_ENV, ANTHROPIC_BASE_URL: 'https://llm.example.com', CLAUDE_CODE_EFFORT_LEVEL: 'low' };
+  const r = runCli(['doctor'], { cwd: dir, env });
+  assert.match(r.stdout, /^! Модели: шлюз llm\.example\.com, но для псевдонимов haiku, sonnet, opus нет отображения/m);
+  assert.doesNotMatch(r.stdout, /fable/);
+  assert.match(r.stdout, /^! Модели: задан CLAUDE_CODE_EFFORT_LEVEL=low/m);
+});
+
+test('doctor: model environment is read from the project settings files, process env wins', () => {
+  const dir = gitRepo();
+  writeProfile(dir, {});
+  write(dir, '.claude/settings.local.json', { env: { CLAUDE_CODE_EFFORT_LEVEL: 'low', CLAUDE_CODE_SUBAGENT_MODEL_FORCE: '1' } });
+  const { CLAUDE_CODE_EFFORT_LEVEL, ...env } = CLEAN_MODEL_ENV; // unset in the process, so the settings file decides
+  const r = runCli(['doctor'], { cwd: dir, env: { ...env, CLAUDE_CODE_SUBAGENT_MODEL_FORCE: '0' } });
+  assert.match(r.stdout, /^! Модели: задан CLAUDE_CODE_EFFORT_LEVEL=low/m);
+  assert.doesNotMatch(r.stdout, /CLAUDE_CODE_SUBAGENT_MODEL_FORCE/);
+});
