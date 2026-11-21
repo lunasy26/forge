@@ -721,7 +721,7 @@ test('git push without a branch in a directory known only at run time asks', () 
     assert.equal(decide(cmd), 'allow', cmd);
   }
   // a known directory is still where the branch is read
-  const branchOf = (cwd) => (cwd === '/work/main-repo' ? 'main' : 'feature/x');
+  const branchOf = (cwd) => (/[\\/]work[\\/]main-repo$/.test(cwd ?? '') ? 'main' : 'feature/x'); // D:\work\main-repo on Windows
   const at = (cmd) => checkBash(cmd, { ...ctx(), currentBranch: branchOf }).decision;
   assert.equal(at('cd /work/main-repo && git push'), 'deny');
   assert.equal(at('pushd /work/main-repo && popd && git push'), 'allow');
@@ -813,7 +813,7 @@ test('cd, pushd and popd behind a wrapper run in a child process and leave the d
   ]) {
     assert.equal(decide(cmd), 'allow', cmd);
   }
-  const branchOf = (cwd) => (cwd === '/work/main-repo' ? 'main' : 'feature/x');
+  const branchOf = (cwd) => (/[\\/]work[\\/]main-repo$/.test(cwd ?? '') ? 'main' : 'feature/x'); // D:\work\main-repo on Windows
   const at = (cmd) => checkBash(cmd, { ...ctx(), currentBranch: branchOf }).decision;
   assert.equal(at('sudo cd /work/main-repo && git push'), 'allow');
   assert.equal(at('command cd /work/main-repo && git push'), 'deny');
