@@ -34,7 +34,7 @@ What the guard hooks answer (silence, `deny` or `ask`) is described on the [Guar
 
 On an internal error a hook writes it to the log and exits with code 0 and no output (fail-open): a forge failure never blocks your work. The log is `.forge/log/errors.log` if the project has `.forge/`, otherwise `forge-errors.log` in the system temp directory; [`forge doctor`](cli.md#commands) shows the latest errors.
 
-The exception is the guard hooks `pre-bash` and `pre-edit`: if the check itself breaks, they answer `ask` and write the error to the same log (fail-closed). The reason is `forge: внутренняя ошибка проверки … не могу убедиться, что она безопасна. Подтверди.` ("internal check error … can't make sure it's safe. Confirm."; for `pre-edit` it ends with «не могу убедиться, что правка разрешена», "can't make sure the edit is allowed"). Unreadable JSON on stdin still means a silent exit: there is nothing to check.
+The exception is the guard hooks `pre-bash` and `pre-edit`: if the check itself breaks, they answer `ask` and write the error to the same log (fail-closed). The reason is `forge: internal error while checking the command (details in the forge error log) — cannot confirm it is safe. Confirm.` (for `pre-edit`: `forge: internal error while checking protected files (details in the forge error log) — cannot confirm the edit is allowed. Confirm.`). Unreadable JSON on stdin still means a silent exit: there is nothing to check.
 
 ## Session start context
 
@@ -43,7 +43,7 @@ On `startup`, `resume`, `clear`, `compact`:
 - no profile and not a git repository — nothing, not even the Superpowers warning (the hook exits right away);
 - a git repository without a profile — one line suggesting `/forge:init`;
 - with a profile — a line with the mode (from the state, otherwise from the profile), tier, verification steps, `on_stop` and a reminder about `forge route <role>`; when needed, lines about the active task (slug, stage, path to the plan), a failed last check, the number of [profile errors](profile.md#broken-profile) and ignored [`routing` overrides](routing.md#routing-overrides);
-- with a profile and no root `AGENTS.md` — the line `forge: нет AGENTS.md — /forge:docs поможет завести.` ("no AGENTS.md — /forge:docs will help set one up"); if there is a `CLAUDE.md` that doesn't import `AGENTS.md` (no `@AGENTS.md` line outside a code block) — `forge: CLAUDE.md не подключает AGENTS.md — forge docs.` ("CLAUDE.md doesn't import AGENTS.md — forge docs"). Only these two files are checked, without walking directories; a `CLAUDE.md` that is a symbolic link to `AGENTS.md` counts as an import; with a correct pair there is no line;
+- with a profile and no root `AGENTS.md` — the line `forge: no AGENTS.md: /forge:docs can create one.`; if there is a `CLAUDE.md` that doesn't import `AGENTS.md` (no `@AGENTS.md` line outside a code block) — `forge: CLAUDE.md does not import AGENTS.md: forge docs.`. Only these two files are checked, without walking directories; a `CLAUDE.md` that is a symbolic link to `AGENTS.md` counts as an import; with a correct pair there is no line;
 - the [Superpowers warning](../../README.md#superpowers-conflict), if it is enabled — in a git repository, with or without a profile.
 
 The whole text is cut to 600 characters.
@@ -59,7 +59,7 @@ The whole text is cut to 600 characters.
 
 `{files}` in a command is replaced with the shell-quoted list of files; `ext` keeps only files with those extensions; if no files are left, the step is skipped. A command without `{files}` runs as is, over the whole project, after every batch with edits. Commands run through `/bin/sh -c` in the project root with `CI=1`, `FORCE_COLOR=0`, `NO_COLOR=1`. Lint also works with [`verify.on_stop: "off"`](#verification-on-stop).
 
-The context starts with «forge: после правок» ("after edits") and ends with «Исправь это до следующих шагов.» ("fix this before the next steps").
+The context starts with `forge: after your edits` and ends with `Fix this before the next steps.`.
 
 ## Verification on Stop
 
@@ -70,7 +70,7 @@ The `Stop` hook:
 - records the result in [`.forge/state.json`](state.md#state-file) (`verify`, `failures.verify_streak`): success resets the failure counter, a failure increments it. [`forge verify`](cli.md#commands) keeps the same counter;
 - on success the turn ends silently; on failure it answers `decision: "block"`: Claude gets the step, the command, up to 60 lines of output and an instruction to fix it or tell the user honestly that the check fails.
 
-The block reason starts with `forge: проверка перед завершением не прошла.` ("verification before finishing failed") and ends with «Исправь и заверши работу снова. Если исправить нельзя — честно сообщи пользователю, что проверка падает.» ("Fix it and finish again. If it can't be fixed, tell the user honestly that the check fails.").
+The block reason starts with `forge: the check before finishing failed.` and ends with `Fix it and finish again. If it cannot be fixed, tell the user honestly that the check fails.`.
 
 ### Failure streak
 
@@ -78,9 +78,9 @@ The block reason starts with `forge: проверка перед заверше�
 |---|---|
 | 1 | Doesn't let the turn end; shows Claude the output |
 | 2 or more | The same, plus an instruction to hand the task to the [`debugger`](routing.md#roles) role (`forge route debugger`) together with the log |
-| 3 or more, on a repeated stop (`stop_hook_active`) | Doesn't block: the user gets the message «проверка падает N раз(а) подряд, автопроверка отпустила сессию» ("the check has failed N times in a row, auto-verification released the session") |
+| 3 or more, on a repeated stop (`stop_hook_active`) | Doesn't block: the user gets the message `forge: the check has failed N times in a row, so auto-verify is letting the session go. Step: …` |
 
-If there are no new edits, but the last check failed and the user hasn't been told yet, the hook shows them a summary once: `forge: последняя проверка не прошла (…)` ("the last check failed"). So a stop without new edits after a failure doesn't loop.
+If there are no new edits, but the last check failed and the user hasn't been told yet, the hook shows them a summary once: `forge: the last check failed (…)`. So a stop without new edits after a failure doesn't loop.
 
 ## Reminders at the end of a turn
 
@@ -106,7 +106,7 @@ An unknown value in `FORGE_LANG` or in `language` is skipped as if it were not s
 
 What is translated: CLI output (including `forge init` notes and the `forge doctor` report), the reasons of the guard hooks, the context and reasons of the other hooks, profile validation errors, the issues of [`forge docs`](agent-docs.md#issue-codes) and [`forge release --check`](releases.md#changelog-checks). What is not: the error log `.forge/log/errors.log` (always English), data that forge quotes (command output, file paths, changelog entries, the profile's own text), and the skills and agents, which are written in English: Claude answers in your language anyway.
 
-The messages quoted on the pages of this documentation are the Russian ones, with a translation in parentheses; the English text says the same in other words. How to add a message is on the [Development](development.md#adding-a-message) page.
+The messages quoted on the English pages are the English ones; the Russian pages quote the Russian ones. How to add a message is on the [Development](development.md#adding-a-message) page.
 
 ## Limitations
 

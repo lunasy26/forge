@@ -72,7 +72,7 @@ The tests additionally require that in the built-in table senior is strictly str
 
 ## Routing overrides
 
-The profile's [`routing`](profile.md#profile-fields) is laid over the built-in table by mode and role, and the result is checked by the same invariants. Any error — and the whole `routing` block is ignored in every mode, and the built-in table applies. This is reported by [session start](hooks.md#session-start-context) (as a count), `forge doctor` (lines `✗ routing: …`), `forge mode` (the line `! переопределения routing …` on stdout, "routing overrides … ignored") and `forge route` (on stderr). An override may make senior equal to implementer — then the first retry simply repeats the same model.
+The profile's [`routing`](profile.md#profile-fields) is laid over the built-in table by mode and role, and the result is checked by the same invariants. Any error — and the whole `routing` block is ignored in every mode, and the built-in table applies. This is reported by [session start](hooks.md#session-start-context) (as a count), `forge doctor` (lines `✗ routing: …`), `forge mode` (the line `! routing overrides from the profile were ignored: …` on stdout and `forge route` (on stderr). An override may make senior equal to implementer — then the first retry simply repeats the same model.
 
 ## Using other models
 

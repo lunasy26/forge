@@ -6,13 +6,11 @@
 
 Two [`PreToolUse` hooks](hooks.md#hook-table) stop risky actions before they run: the Bash guard and the file guard. Both work without a profile, with built-in defaults.
 
-When an action is allowed, the guard hooks print nothing, and Claude Code's normal permissions apply. `deny` rejects the call and passes the reason to Claude; `ask` asks the user to confirm. Reasons start with `forge:` and come in the [message language](hooks.md#message-language); the examples on this page are the Russian ones:
+When an action is allowed, the guard hooks print nothing, and Claude Code's normal permissions apply. `deny` rejects the call and passes the reason to Claude; `ask` asks the user to confirm. Reasons start with `forge:` and come in the [message language](hooks.md#message-language); for example:
 
 ```
-forge: git push --force запрещён. Для своей ветки используй --force-with-lease.
+forge: git push --force is forbidden. For your own branch use --force-with-lease.
 ```
-
-("git push --force is forbidden. For your own branch use --force-with-lease.")
 
 **On this page:**
 
@@ -67,10 +65,8 @@ Order of the `git push` checks: `--mirror`, protected branch, force, `--no-verif
 A typical reason:
 
 ```
-forge: push в защищённую ветку «main» запрещён (git.protected_branches). Работай в отдельной ветке и предложи пользователю PR или слияние.
+forge: pushing to the protected branch "main" is forbidden (git.protected_branches). Work in a separate branch and suggest a PR or a merge to the user.
 ```
-
-("push to the protected branch «main» is forbidden (git.protected_branches). Work in a separate branch and offer the user a PR or a merge.")
 
 ### Abbreviated long options
 

@@ -31,9 +31,9 @@ The agent files are `AGENTS.md` and `CLAUDE.md`. forge keeps a layout in which t
 
 `forge docs [--fix] [--json]` checks the structure of the agent files deterministically, without a model. It works without a profile too (with defaults). Directories with agent files are found like this: in a git repository with `git ls-files` (tracked and untracked, without ignored files), otherwise with a directory walk up to depth 6 and 20 000 entries. Skipped are hidden directories, `node_modules`, `vendor`, `dist`, `build`, `target`, `bin`, `obj`, `.venv`, `venv`, `__pycache__`, `Pods`, `DerivedData`; the walk doesn't follow symbolic links to directories but sees links to files. The `.forge/` directory is never scanned (it holds the `/forge:docs` backups). Whether a found directory has `AGENTS.md` and `CLAUDE.md` is decided on disk: a git-ignored file next to a found one counts too. A `CLAUDE.md` that is a symbolic link to the neighbouring `AGENTS.md` counts as a correct import, just like `@AGENTS.md`.
 
-The output is lines `✗ <path>: <message> [<code>]` (error) and `! <path>: <message> [<code>]` (warning); with no issues — `✓ Агентские файлы в порядке` ("agent files are in order"). Exit code 1 if there is at least one error (`✗`); warnings (`!`) don't change it. An unknown argument gives exit code 2.
+The output is lines `✗ <path>: <message> [<code>]` (error) and `! <path>: <message> [<code>]` (warning); with no issues — `✓ Agent files are in order`. Exit code 1 if there is at least one error (`✗`); warnings (`!`) don't change it. An unknown argument gives exit code 2.
 
-[`forge doctor`](cli.md#commands) adds a line: `✓ Агентские файлы в порядке`, or `✗`/`!` `Агентские файлы: N замечаний — forge docs` ("agent files: N issues — forge docs", with Russian plural agreement: 1 замечание, 2 замечания); `!` if all issues are warnings. The exit code of `doctor` doesn't change — it is always 0.
+[`forge doctor`](cli.md#commands) adds a line: `✓ Agent files are in order`, or `✗`/`!` `Agent files: N issues — forge docs` (`1 issue` for one); `!` if all issues are warnings. The exit code of `doctor` doesn't change — it is always 0.
 
 ### Issue codes
 
@@ -52,7 +52,7 @@ The output is lines `✗ <path>: <message> [<code>]` (error) and `! <path>: <mes
 
 ### Fixing and JSON output
 
-`--fix` changes only `CLAUDE.md` files and only writes `@AGENTS.md` into a missing or empty file; it never touches existing text and doesn't treat a file it couldn't read as empty. It first prints `создан <path>` ("created") for each file and `пропущен <path>: <reason>` ("skipped") for each fixable issue it didn't fix (the file already exists, including a broken symbolic link; isn't empty; can't be read; couldn't be written), then re-runs the check and prints the usual report; the exit code follows that re-check.
+`--fix` changes only `CLAUDE.md` files and only writes `@AGENTS.md` into a missing or empty file; it never touches existing text and doesn't treat a file it couldn't read as empty. It first prints `created <path>` for each file and `skipped <path>: <reason>` for each fixable issue it didn't fix (the file already exists, including a broken symbolic link; isn't empty; can't be read; couldn't be written), then re-runs the check and prints the usual report; the exit code follows that re-check.
 
 `--json` prints the array of issues on one line (`[]` for a clean project):
 
@@ -60,7 +60,7 @@ The output is lines `✗ <path>: <message> [<code>]` (error) and `! <path>: <mes
 [{"code":"missing-shim","level":"error","path":"backend/CLAUDE.md","message":"…","fixable":true}]
 ```
 
-`fixable: true` marks the issues that `--fix` repairs. With `--json` the «создан …» lines are not printed, and the «пропущен …» lines go to stderr.
+`fixable: true` marks the issues that `--fix` repairs. With `--json` the `created …` lines are not printed, and the `skipped …` lines go to stderr.
 
 Projects that already have `AGENTS.md` without `CLAUDE.md` in several directories are usually fixed by one `forge docs --fix`.
 
@@ -71,17 +71,17 @@ A nested git repository (not a submodule, but a separate `.git` in a subdirector
 After the check, `Stop` decides whether `AGENTS.md` and `CLAUDE.md` may be stale (the layout is in [Layout](#layout)). The reminder is a `decision: "block"` with this reason:
 
 ```
-forge: в этой задаче изменились команды или структура: … Проверь, не устарели ли … — команды, карта каталогов, правила. Если обновлять нечего — так и скажи и заверши работу.
+forge: commands or structure changed in this task: new directory services/, package.json. Check AGENTS.md, CLAUDE.md for anything out of date: commands, directory map, rules. If there is nothing to update, say so and finish.
 ```
 
-("commands or structure changed in this task: … Check whether … are stale — commands, directory map, rules. If there is nothing to update, say so and finish.") The text is short (at most about 520 characters): the lists of changes and files are cut to «… и ещё N» ("… and N more"). It can be turned off with [`docs.remind: false`](profile.md#profile-fields).
+The text is short (at most about 520 characters): the lists of changes and files are cut to `… and N more`. It can be turned off with [`docs.remind: false`](profile.md#profile-fields).
 
 ### What counts as a change
 
 The files from the [edit journal](state.md#edit-journal) after the `docs.offset` cursor are taken. A change is one of two things:
 
 - the file matches [`docs.watch`](profile.md#profile-fields) (by default `package.json`, `pyproject.toml`, `Cargo.toml`, `*.sln`, `Makefile`, `justfile`, `Taskfile.yml`, `docker-compose*.yml`, `compose*.yml`, `.github/workflows/**`, `.gitlab-ci.yml`; a pattern without `/` applies at any depth). A `package.json` in git counts only if its `scripts` differ from `HEAD` (key order doesn't matter; absent in `HEAD` or not readable as JSON — it counts), so a dependency edit stays quiet. Git is resolved for each `package.json` from its own directory (`git -C <dir>`): a project without git at the root with repositories in subfolders, and a nested repository or submodule inside a git project, are compared with their own `HEAD`. Outside git any edit of `package.json` counts; in a repository without commits every `package.json` is "new";
-- in git: the file lies in a top-level directory that isn't in `HEAD`, and the root `AGENTS.md` doesn't mention it (`name/` or `` `name` ``). Hidden directories, files in the root, git-ignored files and a project without commits don't count; one directory is one change, shown in the text as «новый каталог name/» ("new directory name/"). Outside git there is no such signal.
+- in git: the file lies in a top-level directory that isn't in `HEAD`, and the root `AGENTS.md` doesn't mention it (`name/` or `` `name` ``). Hidden directories, files in the root, git-ignored files and a project without commits don't count; one directory is one change, shown in the text as `new directory name/`. Outside git there is no such signal.
 
 ### What clears a reminder
 
@@ -94,7 +94,7 @@ forge remembers in [`state.json`](state.md#state-file) (`docs.reminded`) what it
 ### Order and when it stays quiet
 
 - After every stop the `docs.offset` cursor moves to the end of the journal, so the same edits are not examined twice. This is one window shared with the [reminder about an empty `[Unreleased]`](releases.md#reminder-about-an-empty-unreleased): both read the same files, and when both fire the reasons go into one block.
-- [Verification](hooks.md#verification-on-stop) comes first. If the check failed (`decision: "block"`), there is no reminder, the cursor stays, and the reminder comes after the next passing check. If the check released the session after three failures, there is no reminder either (the cursor stays). The one-off message «последняя проверка не прошла» ("the last check failed") may come together with a reminder in one answer.
+- [Verification](hooks.md#verification-on-stop) comes first. If the check failed (`decision: "block"`), there is no reminder, the cursor stays, and the reminder comes after the next passing check. If the check released the session after three failures, there is no reminder either (the cursor stays). The one-off message "the last check failed" may come together with a reminder in one answer.
 - It stays quiet without a profile, while background subagents or workflows are running, if there is no `AGENTS.md` either in the root or in the directories above the changed files (checked before any git calls), and with `docs.remind: false`. When this reminder is off and the release reminder is off too (or there is no `release` section), `Stop` deletes `state.docs`, so that an old cursor doesn't hold back the journal reset; if only one of them is off, the shared cursor stays. `verify.on_stop: "off"` doesn't turn the reminder off.
 - An error inside the reminder is logged and doesn't affect the check result: its `decision`/`systemMessage` is returned as usual.
 - The first stop after updating forge (no cursor yet) only records the cursor: edits made before it are not reminded about.

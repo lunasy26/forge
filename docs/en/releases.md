@@ -12,7 +12,7 @@ The scheme is [Keep a Changelog](https://keepachangelog.com/en/1.1.0/) and [Sema
 - a release moves them to `## [x.y.z] — YYYY-MM-DD`, writes the version into the [version files](#version-files), makes a commit `chore(release): x.y.z` and an annotated tag `<tag_prefix>x.y.z`, and fixes the comparison links at the bottom of the changelog;
 - the current version is the highest `[x.y.z]` heading of the changelog (by SemVer, not by position); without one, the latest version tag with the prefix; without that, `0.0.0`.
 
-Without a `release` section in the [profile](profile.md#profile-fields) nothing of this is active: no reminder, no doctor line, and `forge release` prints `✗ раздел release в профиле не настроен — forge init предложит его, если проект выпускается` ("the release section is not configured in the profile — forge init proposes it if the project is released") and exits with 1.
+Without a `release` section in the [profile](profile.md#profile-fields) nothing of this is active: no reminder, no doctor line, and `forge release` prints `✗ the release section is not configured in the profile — forge init will suggest it if the project is released` and exits with 1.
 
 **On this page:**
 
@@ -34,7 +34,7 @@ Either [`forge init`](profile.md#stack-detection) proposes the section, or you a
 "release": {}
 ```
 
-Fields, defaults and the schema are in [Profile fields](profile.md#profile-fields). `forge init` proposes the section when it finds at least one signal at the project root; every signal is printed in the notes as `Релизы включены: …` ("releases enabled: …"):
+Fields, defaults and the schema are in [Profile fields](profile.md#profile-fields). `forge init` proposes the section when it finds at least one signal at the project root; every signal is printed in the notes as `Releases enabled: …`:
 
 - `CHANGELOG.md` exists;
 - there are git tags that are versions: `x.y.z` or `vx.y.z`;
@@ -56,16 +56,16 @@ A preview of a project at 1.4.2 with `Added` and `Fixed` entries under `[Unrelea
 
 ```
 $ forge release
-Уровень: minor (есть Added)
-Версия: 1.4.2 → 1.5.0
-Дата: 2026-11-21
-Файлы:
+Level: minor (has Added)
+Version: 1.4.2 → 1.5.0
+Date: 2026-11-21
+Files:
   CHANGELOG.md: [Unreleased] → [1.5.0] — 2026-11-21
   package.json: 1.4.2 → 1.5.0
-Тег: v1.5.0
-Коммит: chore(release): 1.5.0
+Tag: v1.5.0
+Commit: chore(release): 1.5.0
 
-Выпустить: forge release minor --yes
+Release: forge release minor --yes
 ```
 
 ("Level: minor (there is Added)", "Version", "Date", "Files", "Tag", "Commit", "Release: …".) The date is today in local time; `--date` sets another one (it ends up in the last line too). With `--json` the preview is one line `{level, reason, current, next, tag, files, commit}`, where `files` is `[{path, from, to}]`.
@@ -83,7 +83,7 @@ With no level given, forge suggests one from `[Unreleased]`; only sections that 
 | `patch` | anything else: only `Fixed`, `Deprecated`, `Security`, or only custom sections |
 
 - **Custom sections never raise the level.** A section outside the six standard ones (for instance «Обновление», "Upgrade") counts as `patch` material, and `BREAKING` in its text is not looked at: the standard sections carry the level.
-- **Before 1.0, `major` becomes `minor`:** while the current major is 0, a would-be `major` is suggested as `minor`, and the reason says so: `раздел Removed (до 1.0 major заменяется на minor)` ("before 1.0 major is replaced by minor"). Only the suggestion is softened; an explicit `major` is honoured.
+- **Before 1.0, `major` becomes `minor`:** while the current major is 0, a would-be `major` is suggested as `minor`, and the reason says so: `Removed section (before 1.0 a major bump becomes minor)`. Only the suggestion is softened; an explicit `major` is honoured.
 - The suggestion is a default, not a verdict: whether a change breaks users is your judgement. Pass `major`, `minor` or `patch` to override, or an exact `x.y.z`. The new version must be greater than the current one. An explicit `major` from 0.x gives 1.0.0.
 - Pre-release versions are read but not produced: a pre-release current version is understood (`1.0.0-rc.1` sorts below `1.0.0`), and a level drops the suffix (`patch` on it gives `1.0.1`). A level never produces a pre-release; an exact version is written as given, but forge has no pre-release workflow.
 
@@ -96,7 +96,7 @@ With no level given, forge suggests one from `[Unreleased]`; only sections that 
 - a version file can't be read (see [Version files](#version-files));
 - the new version is not greater than the current one, or the tag already exists.
 
-If it isn't on the default branch it only warns (`! выпуск не с ветки main (сейчас …)`, "release not from branch main"). The default branch is `origin/HEAD`; where origin is unknown, no warning is made.
+If it isn't on the default branch it only warns (`! releasing from a branch other than main (currently …)`). The default branch is `origin/HEAD`; where origin is unknown, no warning is made.
 
 Then it, in order:
 
@@ -105,16 +105,16 @@ Then it, in order:
 3. `git add` of those files only, and `git commit` with the message `chore(release): x.y.z`;
 4. creates the annotated tag `<tag_prefix>x.y.z` (message `release x.y.z`).
 
-If any step fails, forge puts the files back byte for byte, undoes its own commit and leaves no tag, then prints `Файлы возвращены в исходное состояние, тег не создан.` ("the files are restored, no tag created"). On success it prints:
+If any step fails, forge puts the files back byte for byte, undoes its own commit and leaves no tag, then prints `The files were restored, no tag was created.`. On success it prints:
 
 ```
-✓ Выпущена версия 1.5.0
-Коммит: 3f9a1c2 chore(release): 1.5.0
-Тег: v1.5.0
-Отправить: git push origin main && git push origin v1.5.0
+✓ Released version 1.5.0
+Commit: 3f9a1c2 chore(release): 1.5.0
+Tag: v1.5.0
+Push: git push origin main && git push origin v1.5.0
 ```
 
-("Released version", "Commit", "Tag", "Push".) **forge never pushes**: the last line is a hint for you or for [`/forge:release`](#release-flow-in-claude), which asks first. The [Bash guard](guards.md#guard-rules) still applies to the push you run. With `--json` the result is `{level, reason, current, next, tag, files, commit, sha, branch}`.
+**forge never pushes**: the last line is a hint for you or for [`/forge:release`](#release-flow-in-claude), which asks first. The [Bash guard](guards.md#guard-rules) still applies to the push you run. With `--json` the result is `{level, reason, current, next, tag, files, commit, sha, branch}`.
 
 ## Version files
 
@@ -135,7 +135,7 @@ Every version file must hold the current version, otherwise [`forge release --ch
 
 ## Changelog checks
 
-`forge release --check` prints lines `✗ <path>: <message> [<code>]` (error) and `! <path>: <message> [<code>]` (warning), or `✓ Журнал изменений в порядке` ("the changelog is in order"); `--json` prints an array of `{code, level, path, message}` on one line (`level` is `error` or `warn`; `path` is absent for `tag-missing`). It works only with a `release` section. [`forge doctor`](cli.md#commands) adds a line: `✓ Журнал изменений в порядке`, or `✗`/`!` `Журнал изменений: N замечаний — forge release --check` ("changelog: N issues"; `!` if all are warnings); it doesn't change `doctor`'s exit code.
+`forge release --check` prints lines `✗ <path>: <message> [<code>]` (error) and `! <path>: <message> [<code>]` (warning), or `✓ Changelog is in order`; `--json` prints an array of `{code, level, path, message}` on one line (`level` is `error` or `warn`; `path` is absent for `tag-missing`). It works only with a `release` section. [`forge doctor`](cli.md#commands) adds a line: `✓ Changelog is in order`, or `✗`/`!` `Changelog: N issues — forge release --check` (`!` if all are warnings); it doesn't change `doctor`'s exit code.
 
 | Code | Level | When |
 |---|---|---|
@@ -155,10 +155,10 @@ Every version file must hold the current version, otherwise [`forge release --ch
 With a `release` section and `release.remind` not `false`, the `Stop` hook looks at the edits of the turn. If code changed (any edited file that is not the changelog itself and doesn't match [`release.ignore`](profile.md#profile-fields), which by default covers tests, `docs/**` and Markdown) and `[Unreleased]` has no entries, the turn is blocked once with this reason:
 
 ```
-forge: в этой задаче менялся код (…), а в CHANGELOG.md в [Unreleased] пусто. Если изменение заметно тому, кто пользуется проектом, добавь запись в нужный раздел; если нет — так и скажи и заверши работу.
+forge: code changed in this task (lib/cli.mjs, lib/release.mjs), but [Unreleased] in CHANGELOG.md is empty. If the change is noticeable to someone who uses the project, add an entry in the right section; if not, say so and finish.
 ```
 
-("code changed in this task (…), and [Unreleased] in CHANGELOG.md is empty. If the change is noticeable to someone who uses the project, add an entry in the right section; if not, say so and finish.") The list of files is cut to about 100 characters with «… и ещё N» ("… and N more"). Adding any entry to `[Unreleased]` clears it: the reminder only looks at whether the section is empty.
+The list of files is cut to about 100 characters with `… and N more`. Adding any entry to `[Unreleased]` clears it: the reminder only looks at whether the section is empty.
 
 - **One window.** The reminder reads the same window of edits as the [agent docs reminder](agent-docs.md#agent-docs-reminder): the journal after the `docs.offset` cursor, which is the one cursor of both. After every stop it moves to the end. If both reminders fire, Claude gets one `block` with both reasons, separated by a blank line; each part's error is logged and doesn't cost the other.
 - **Once per branch.** What was already reminded about is kept in [`state.json`](state.md#state-file) (`release.reminded`, the newest 20 keys). On a feature branch the key is the branch name: one reminder per branch. On the default branch (`origin/HEAD`, or `main`/`master` where origin is unknown) and on a detached `HEAD` the key is `<branch>@<latest version tag>` (`@none` with no tags): one reminder per released version, so it comes back after the next release.
