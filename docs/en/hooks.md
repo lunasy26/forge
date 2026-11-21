@@ -69,7 +69,7 @@ Every command from the profile (`format`, `lint` and the [`verify.steps`](#verif
 2. `bin\bash.exe` in the Git installation next to `git --exec-path`;
 3. `%ProgramFiles%\Git`, `%ProgramFiles(x86)%\Git`, `%LOCALAPPDATA%\Programs\Git` (the `bin\bash.exe` in each).
 
-If Git Bash is not found, the step fails with the output `forge: Git Bash not found — install Git for Windows or set CLAUDE_CODE_GIT_BASH_PATH`; nothing runs under `cmd` or PowerShell instead. [`forge doctor`](cli.md#commands) shows which Git Bash was found.
+If Git Bash is not found, nothing runs under `cmd` or PowerShell instead, and the steps are **skipped, not failed**: a missing shell is a problem of the environment that the model cannot fix in its code. So neither `PostToolBatch` nor `Stop` blocks or sends Claude to fix anything, the failure streak and the escalation to the `debugger` role do not move, and the user gets one notice (shown once; remembered in `state.shell_missing_notified` until a verification run executes commands again): `forge: format, lint and the final check are skipped, there is nothing to run them with. Git Bash not found — install Git for Windows or set CLAUDE_CODE_GIT_BASH_PATH`. [`forge doctor`](cli.md#commands) shows which Git Bash was found.
 
 ## Verification on Stop
 
@@ -77,7 +77,7 @@ The `Stop` hook:
 
 - does nothing without a profile, and while background subagents or workflows are still running — the check happens when they finish. With [`verify.on_stop: "off"`](profile.md#profile-fields) or empty `verify.steps` it skips only the check: the [reminders](#reminders-at-the-end-of-a-turn) still work;
 - if the edit journal grew since the last check, runs `verify.steps` in order until the first failure, within a total budget of `verify.timeout_sec`. With `on_stop: "fast"` the `test` step is replaced with `test_fast`, if it is set and has something to check. Steps with `{files}` get the files changed since the last check;
-- records the result in [`.forge/state.json`](state.md#state-file) (`verify`, `failures.verify_streak`): success resets the failure counter, a failure increments it. [`forge verify`](cli.md#commands) keeps the same counter;
+- records the result in [`.forge/state.json`](state.md#state-file) (`verify`, `failures.verify_streak`): success resets the failure counter, a failure increments it. [`forge verify`](cli.md#commands) keeps the same counter. When there is no shell to run the steps ([Windows without Git Bash](#which-shell-runs-the-commands)) the check is skipped: `verify.ok` becomes `null`, the summary says `<step>: Git Bash not found, skipped`, the counter does not change, and the turn ends with the one-time notice instead of a block;
 - on success the turn ends silently; on failure it answers `decision: "block"`: Claude gets the step, the command, up to 60 lines of output and an instruction to fix it or tell the user honestly that the check fails.
 
 The block reason starts with `forge: the check before finishing failed.` and ends with `Fix it and finish again. If it cannot be fixed, tell the user honestly that the check fails.`.

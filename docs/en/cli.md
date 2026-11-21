@@ -18,7 +18,7 @@ The hooks and the skills call `forge` for everything deterministic; you can run 
 | `forge mode [eco\|normal\|max]` | Shows or switches the [mode](routing.md#models-by-mode) (in the state) and prints its table | 0; 2 — unknown mode |
 | `forge route <role> [--json]` | `role=… mode=… agent=… model=… effort=…` or the same as JSON ([how skills use it](routing.md#how-skills-dispatch-a-role)) | 0; 2 — no role given or unknown role |
 | `forge route --table` | The current mode's table | 0 |
-| `forge verify [--fast] [--json]` | Runs [`verify.steps`](hooks.md#verification-on-stop), records the result and the failure counter; `--json` prints `{ok, summary, failed, streak}` | 0 — passed; 1 — failed, no profile or no steps |
+| `forge verify [--fast] [--json]` | Runs [`verify.steps`](hooks.md#verification-on-stop), records the result and the failure counter; `--json` prints `{ok, summary, failed, streak}` | 0 — passed; 1 — failed, no profile or no steps; 4 — skipped, there is no [Git Bash](hooks.md#which-shell-runs-the-commands) to run the steps (Windows) |
 | `forge docs [--fix] [--json]` | Checks `AGENTS.md`/`CLAUDE.md` ([codes and levels](agent-docs.md#issue-codes)); `--fix` creates missing and empty `CLAUDE.md` files with the `@AGENTS.md` line; `--json` prints an array of `{code, level, path, message, fixable}` | 0 — no errors (warnings allowed); 1 — there is an error; 2 — unknown argument |
 | `forge release --check [--json]` | Checks the changelog and the version files ([codes](releases.md#changelog-checks)); `--json` prints an array of `{code, level, path, message}` | 0 — no errors (warnings allowed); 1 — there is an error, or no `release` section; 2 — usage error |
 | `forge release [major\|minor\|patch\|x.y.z] [--date YYYY-MM-DD] [--json]` | [Preview](releases.md#the-forge-release-command) of a release: level and reason, `current → next`, files, tag, commit; changes nothing | 0; 1 — nothing to release or another refusal, or no `release` section; 2 — usage error |
@@ -27,6 +27,8 @@ The hooks and the skills call `forge` for everything deterministic; you can run 
 | `forge help`, `-h`, `--help`, no arguments | Help | 0 |
 
 On Windows `forge doctor` also prints a Git Bash line, right after the profile line (only in a project with a profile): `✓ Git Bash: <path>` or `✗ Git Bash not found — install Git for Windows or set CLAUDE_CODE_GIT_BASH_PATH`. Git Bash is the shell that runs the [profile commands](hooks.md#which-shell-runs-the-commands); without it the check of command executables is skipped rather than reported as missing. On macOS and Linux there is no such line.
+
+If `forge verify` cannot run the steps for lack of Git Bash, that is not a failure: it prints `SKIPPED: <step>: Git Bash not found, skipped` and the Git Bash message instead of the failure report, exits with code 4, leaves the failure counter alone and records `verify.ok: null` in the [state](state.md#state-file). With `--json` the object has `"ok": false` and `"shell_missing": true`.
 
 An unknown command (or `state` subcommand) gives exit code 2, an internal CLI error gives 3. Errors are printed to stderr as `forge: …`.
 

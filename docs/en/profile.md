@@ -46,7 +46,7 @@ The project profile is `.forge/profile.json`. [`forge init`](#stack-detection) w
 |---|---|---|---|
 | `$schema` | string | — | `forge init` writes `./profile.schema.json` |
 | `version` | `1` | — | Format version |
-| `commands` | object: name → string or `{ "run": string, "ext": [".ext"] }` | `{}` | Shell commands, written in POSIX `sh` syntax: they run in `/bin/sh`, on Windows in Git Bash (from Git for Windows; without it checks, format and lint don't run, and [`forge doctor`](cli.md#commands) says so). `format` and `lint` run in [`PostToolBatch`](hooks.md#format-and-lint); `test_fast` replaces `test` in a fast check; any name can be used in `verify.steps` |
+| `commands` | object: name → string or `{ "run": string, "ext": [".ext"] }` | `{}` | Shell commands, written in POSIX `sh` syntax: they run in `/bin/sh`, on Windows in Git Bash (from Git for Windows; without it format, lint and the check are skipped, not failed: the user gets a [one-time notice](hooks.md#which-shell-runs-the-commands), and [`forge doctor`](cli.md#commands) says so). `format` and `lint` run in [`PostToolBatch`](hooks.md#format-and-lint); `test_fast` replaces `test` in a fast check; any name can be used in `verify.steps` |
 | `verify.steps` | string[] | `[]` | Names from `commands`, in order ([Verification on Stop](hooks.md#verification-on-stop)). An empty list means no auto-verification. A step missing from `commands` is dropped with an error |
 | `verify.on_stop` | `off` \| `fast` \| `full` | `fast` | `off` — Stop doesn't verify; `fast` — `test_fast` instead of `test`; `full` — steps as they are |
 | `verify.timeout_sec` | integer 1–540 | `300` | Total budget of one check across all steps |

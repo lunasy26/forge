@@ -147,7 +147,7 @@ If Claude Code does not find Git Bash, set its path in `settings.json`:
 ```
 
 > [!NOTE]
-> Verification, format and lint commands run in Git Bash, which comes with Git for Windows. Without it the guards still work (including the [PowerShell guard](docs/en/guards.md#powershell-guard)), but those checks don't run; `forge doctor` shows whether Git Bash was found.
+> Verification, format and lint commands run in Git Bash, which comes with Git for Windows. Without it the guards still work (including the [PowerShell guard](docs/en/guards.md#powershell-guard)), but those checks are skipped (not failed; you get a one-time notice); `forge doctor` shows whether Git Bash was found.
 
 #### WSL 2
 

@@ -31,7 +31,7 @@ node test/run.mjs test/guards.test.mjs                            # one file
 node test/run.mjs --test-name-pattern "force" test/guards.test.mjs  # tests by name
 ```
 
-`test/run.mjs` is a portable wrapper over `node --test` (works on Windows too: no shell glob or env prefix): it collects `test/*.test.mjs` itself, passes other options through and sets `FORGE_LANG=ru` unless it is already set. So most tests assert the Russian messages. The English ones live in `test/*-en.test.mjs` (`cli-en`, `core-en`, `guards-en`, `hooks-en`) and pin the language themselves. Language resolution and the catalog parity test are in `test/i18n.test.mjs`.
+`test/run.mjs` is a portable wrapper over `node --test` (works on Windows too: no shell glob or env prefix): it collects `test/*.test.mjs` itself, passes other options through and always sets `FORGE_LANG=ru` (an exported value is ignored). So most tests assert the Russian messages. The English ones live in `test/*-en.test.mjs` (`cli-en`, `core-en`, `guards-en`, `hooks-en`) and pin the language themselves. Language resolution and the catalog parity test are in `test/i18n.test.mjs`.
 
 ## Testing hooks
 
