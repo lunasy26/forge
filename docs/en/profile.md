@@ -11,6 +11,7 @@ The project profile is `.forge/profile.json`. [`forge init`](#stack-detection) w
 - [Example](#example)
 - [Profile fields](#profile-fields)
 - [Broken profile](#broken-profile)
+- [Profile in a worktree](#profile-in-a-worktree)
 - [Stack detection](#stack-detection)
 - [What init writes](#what-init-writes)
 
@@ -69,6 +70,12 @@ The project profile is `.forge/profile.json`. [`forge init`](#stack-detection) w
 ## Broken profile
 
 A broken profile doesn't block work. The profile is laid over the defaults. Invalid JSON — all defaults apply; an invalid field — the default for that field, the rest is applied. The errors are shown by [`forge doctor`](cli.md#commands) and (as a count) by [session start](hooks.md#session-start-context).
+
+## Profile in a worktree
+
+`.forge/` is not committed, so a new linked worktree (for example `.claude/worktrees/<name>`, which Claude Code creates) has no profile of its own. Then forge reads the main checkout's profile: guards, checks, lint and routing overrides work as they do there. The worktree's own profile wins — `forge init` in a worktree creates one. The inherited profile is only read; state, the edit journal and plans are the worktree's [own](state.md#edit-journal). [`forge doctor`](cli.md#commands) prints `✓ Profile from the main checkout <path>`, and [session start](hooks.md#session-start-context) adds the same line.
+
+forge finds the main checkout from the `.git` and `commondir` files without starting a process; for a bare repository or a separate git directory it uses the first entry of `git worktree list`. A worktree of a bare repository has no main checkout, and a submodule inherits nothing either. A committed profile is present in every worktree, so it needs no inheritance.
 
 ## Stack detection
 

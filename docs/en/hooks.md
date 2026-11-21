@@ -42,7 +42,7 @@ On `startup`, `resume`, `clear`, `compact`:
 
 - no profile and not a git repository — nothing, not even the Superpowers warning (the hook exits right away);
 - a git repository without a profile — one line suggesting `/forge:init`;
-- with a profile — a line with the mode (from the state, otherwise from the profile), tier, verification steps, `on_stop` and a reminder about `forge route <role>`; when needed, lines about the active task (slug, stage, path to the plan), a failed last check, the number of [profile errors](profile.md#broken-profile) and ignored [`routing` overrides](routing.md#routing-overrides);
+- with a profile — a line with the mode (from the state, otherwise from the profile), tier, verification steps, `on_stop` and a reminder about `forge route <role>`; in a linked worktree using the main checkout's profile, the line `Profile from the main checkout <path>…` ([Profile in a worktree](profile.md#profile-in-a-worktree)); when needed, lines about the active task (slug, stage, path to the plan), a failed last check, the number of [profile errors](profile.md#broken-profile) and ignored [`routing` overrides](routing.md#routing-overrides);
 - with a profile and no root `AGENTS.md` — the line `forge: no AGENTS.md: /forge:docs can create one.`; if there is a `CLAUDE.md` that doesn't import `AGENTS.md` (no `@AGENTS.md` line outside a code block) — `forge: CLAUDE.md does not import AGENTS.md: forge docs.`. Only these two files are checked, without walking directories; a `CLAUDE.md` that is a symbolic link to `AGENTS.md` counts as an import; with a correct pair there is no line;
 - the [Superpowers warning](../../README.md#superpowers-conflict), if it is enabled — in a git repository, with or without a profile.
 

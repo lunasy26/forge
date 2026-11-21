@@ -14,7 +14,7 @@ export const MAX_CONTEXT = 600;
 
 runHook('session-start', async (input, root) => {
   initLang(root, input);
-  const { exists, profile, errors } = loadProfile(root);
+  const { exists, profile, errors, inherited } = loadProfile(root);
   const lines = [];
   if (!exists) {
     if (!isGitRepo(root)) return null; // not a project: stay silent
@@ -24,6 +24,7 @@ runHook('session-start', async (input, root) => {
     const mode = state.mode || profile.mode;
     const steps = profile.verify.steps.join(' → ') || t(MSG, 'noSteps');
     lines.push(t(MSG, 'summary', { mode, tier: state.tier, steps, onStop: profile.verify.on_stop }));
+    if (inherited) lines.push(t(MSG, 'inherited', { path: inherited }));
     if (state.task?.slug) {
       const plan = state.artifacts?.plan ? t(MSG, 'plan', { plan: state.artifacts.plan }) : '';
       lines.push(t(MSG, 'task', { slug: state.task.slug, stage: state.stage || '—', plan }));

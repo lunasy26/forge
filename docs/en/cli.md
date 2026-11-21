@@ -34,4 +34,4 @@ The CLI answers in English or Russian. `FORGE_LANG=ru forge doctor` (or `en`) fo
 
 ## Project root
 
-The project root for the CLI and the hooks is `CLAUDE_PROJECT_DIR` if it is set; otherwise the nearest ancestor of the current directory with `.forge/profile.json` (not above the home directory); otherwise the root of the git repository; otherwise the current directory.
+The project root for the CLI and the hooks is `CLAUDE_PROJECT_DIR` if it is set; otherwise the nearest ancestor of the current directory with `.forge/profile.json` (not above the home directory and not above the first directory with `.git` — so a worktree inside the main checkout, such as `.claude/worktrees/<name>`, stays its own root); otherwise the root of the git repository; otherwise the current directory. If a linked worktree's root has no `.forge/profile.json`, the profile comes from the main checkout ([Profile in a worktree](profile.md#profile-in-a-worktree)), while state and the journal come from the worktree itself.
