@@ -459,3 +459,17 @@ test('profile: invalid language gives a Russian error and the default', () => {
   assert.equal(profile.language, 'auto');
   assert.equal(errors.length, 1);
 });
+
+test('detectLang: a sentence naming an error class is not a log line', () => {
+  assert.equal(detectLang('Почему тесты падают с ошибкой TypeError: x is not a function, посмотри пожалуйста'), 'ru');
+  assert.equal(detectLang('Why do the tests fail with TypeError: x is not a function, please take a look'), 'en');
+  assert.equal(detectLang('Почему тесты падают, посмотри пожалуйста\nTypeError: x is not a function\n    at foo (a.js:1:1)'), 'ru');
+});
+
+test('lastUserText: IDE terminal blocks are dropped, closed or not', () => {
+  const term = '<terminal name="zsh">npm ERR! missing script: build and a long English terminal output follows here</terminal>';
+  const text = lastUserText(transcript(jsonl(user(`${term}Почему не собирается проект, посмотри пожалуйста`))));
+  assert.equal(text, 'Почему не собирается проект, посмотри пожалуйста');
+  assert.equal(detectLang(text), 'ru');
+  assert.equal(lastUserText(transcript(jsonl(user('earlier'), user('<terminal name="zsh">unclosed English output')))), 'earlier');
+});
