@@ -26,11 +26,12 @@ docs/               spec.md — спецификация и решения; en/,
 ## Запуск тестов
 
 ```bash
-npm test                              # FORGE_LANG=ru node --test test/*.test.mjs (без кавычек: glob раскрывает оболочка, Node 20 его не умеет)
-node --test test/guards.test.mjs      # один файл (без FORGE_LANG — английский; тестам русских сообщений нужен FORGE_LANG=ru)
+npm test                                                          # все тесты: node test/run.mjs
+node test/run.mjs test/guards.test.mjs                            # один файл
+node test/run.mjs --test-name-pattern "force" test/guards.test.mjs  # тесты по имени
 ```
 
-`npm test` идёт с `FORGE_LANG=ru`, поэтому большинство тестов проверяют русские сообщения. Английские лежат в `test/*-en.test.mjs` (`cli-en`, `core-en`, `guards-en`, `hooks-en`) и сами задают язык. Выбор языка и тест паритета каталогов — в `test/i18n.test.mjs`.
+`test/run.mjs` — переносимая обёртка над `node --test` (работает и в Windows: без glob оболочки и префикса переменной): сам собирает `test/*.test.mjs`, остальные параметры передаёт дальше и ставит `FORGE_LANG=ru`, если он не задан. Поэтому большинство тестов проверяют русские сообщения. Английские лежат в `test/*-en.test.mjs` (`cli-en`, `core-en`, `guards-en`, `hooks-en`) и сами задают язык. Выбор языка и тест паритета каталогов — в `test/i18n.test.mjs`.
 
 ## Как тестируются хуки
 

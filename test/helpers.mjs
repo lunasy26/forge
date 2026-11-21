@@ -1,5 +1,5 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, realpathSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
@@ -7,7 +7,48 @@ import { fileURLToPath } from 'node:url';
 export const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
 
 export function tempDir(prefix = 'forge-test-') {
-  return realpathSync(mkdtempSync(join(tmpdir(), prefix)));
+  // .native resolves Windows 8.3 short names (RUNNER~1) to the long form that git and the CLI print
+  return realpathSync.native(mkdtempSync(join(tmpdir(), prefix)));
+}
+
+/** A path as written into git config: forward slashes work everywhere, backslashes need escaping. */
+export const gitPath = (p) => p.replace(/\\/g, '/');
+
+let emptyHooksDir;
+/** An empty directory for `core.hooksPath`: no hooks run (`/dev/null` does not exist on Windows). */
+export function noHooksPath() {
+  emptyHooksDir ??= gitPath(tempDir('forge-nohooks-'));
+  return emptyHooksDir;
+}
+
+let symlinks;
+/** Whether symlinks can be created here: always on POSIX, on Windows only with the privilege (or Developer Mode). */
+export function canSymlink() {
+  if (symlinks !== undefined) return symlinks;
+  if (process.platform !== 'win32') return (symlinks = true);
+  const dir = tempDir('forge-symlink-');
+  try {
+    writeFileSync(join(dir, 'target'), '');
+    symlinkSync('target', join(dir, 'link'));
+    symlinks = true;
+  } catch (e) {
+    if (e.code !== 'EPERM') throw e;
+    symlinks = false;
+  }
+  return symlinks;
+}
+/** `skip` value for symlink tests: a reason string when symlinks are unavailable, false otherwise. */
+export const symlinkSkip = () => (canSymlink() ? false : 'symlinks need privilege on Windows');
+
+/** Isolate a test repository from the developer's signing setup, global hooks and line-ending conversion. */
+export function configureRepo(dir) {
+  git(dir, 'config', 'user.email', 'test@example.com');
+  git(dir, 'config', 'user.name', 'test');
+  // never touch the developer's signing setup or global hooks (an SSH signer can block waiting for approval)
+  git(dir, 'config', 'commit.gpgsign', 'false');
+  git(dir, 'config', 'tag.gpgsign', 'false');
+  git(dir, 'config', 'core.hooksPath', noHooksPath());
+  git(dir, 'config', 'core.autocrlf', 'false'); // Git for Windows defaults to true: fixtures must stay LF
 }
 
 export function git(cwd, ...args) {
@@ -19,12 +60,7 @@ export function git(cwd, ...args) {
 export function gitRepo(branch = 'main') {
   const dir = tempDir();
   git(dir, 'init', '-q', '-b', branch);
-  git(dir, 'config', 'user.email', 'test@example.com');
-  git(dir, 'config', 'user.name', 'test');
-  // never touch the developer's signing setup or global hooks (an SSH signer can block waiting for approval)
-  git(dir, 'config', 'commit.gpgsign', 'false');
-  git(dir, 'config', 'tag.gpgsign', 'false');
-  git(dir, 'config', 'core.hooksPath', '/dev/null');
+  configureRepo(dir);
   git(dir, 'commit', '-q', '--allow-empty', '-m', 'init');
   return dir;
 }
@@ -47,7 +83,7 @@ export function emptyConfigDir() {
 
 export function runHookScript(name, input, { projectDir, configDir = emptyConfigDir(), env = {} } = {}) {
   const started = Date.now();
-  const r = spawnSync('node', [join(PLUGIN_ROOT, 'hooks', `${name}.mjs`)], {
+  const r = spawnSync(process.execPath, [join(PLUGIN_ROOT, 'hooks', `${name}.mjs`)], {
     input: JSON.stringify(input),
     encoding: 'utf8',
     env: {
@@ -68,7 +104,7 @@ export function runHookScript(name, input, { projectDir, configDir = emptyConfig
 }
 
 export function runCli(args, { cwd, env = {} } = {}) {
-  const r = spawnSync('node', [join(PLUGIN_ROOT, 'bin', 'forge'), ...args], {
+  const r = spawnSync(process.execPath, [join(PLUGIN_ROOT, 'bin', 'forge'), ...args], {
     cwd,
     encoding: 'utf8',
     env: { ...process.env, CLAUDE_PROJECT_DIR: '', CLAUDE_CONFIG_DIR: emptyConfigDir(), ...env },

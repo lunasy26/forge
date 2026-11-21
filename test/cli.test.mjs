@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { chmodSync, existsSync, readFileSync, symlinkSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { git, gitRepo, runCli as run, tempDir, write, writeProfile } from './helpers.mjs';
+import { configureRepo, git, gitPath, gitRepo, noHooksPath, runCli as run, symlinkSkip, tempDir, write, writeProfile } from './helpers.mjs';
 
 // These assertions are on the Russian texts; English ones live in cli-en.test.mjs.
 const runCli = (args, opts = {}) => run(args, { ...opts, env: { FORGE_LANG: 'ru', ...opts.env } });
@@ -154,7 +154,7 @@ test('doctor: reports the agent files line both when clean and when broken', () 
   assert.match(runCli(['doctor'], { cwd: dir }).stdout, /! Агентские файлы: 21 замечание — forge docs/);
 });
 
-test('docs: --fix says why it skipped a fixable issue', { skip: process.platform === 'win32' }, () => {
+test('docs: --fix says why it skipped a fixable issue', { skip: symlinkSkip() }, () => {
   const dir = gitRepo();
   write(dir, 'AGENTS.md', '# Проект\n');
   symlinkSync('nowhere.md', join(dir, 'CLAUDE.md'));
@@ -365,11 +365,11 @@ test('release --yes: a failing commit restores every changed file and leaves no 
   const hooks = join(dir, 'test-hooks');
   write(dir, 'test-hooks/pre-commit', '#!/bin/sh\necho "no commits today" >&2\nexit 1\n');
   chmodSync(join(hooks, 'pre-commit'), 0o755);
-  git(dir, 'config', 'core.hooksPath', hooks);
+  git(dir, 'config', 'core.hooksPath', gitPath(hooks));
   git(dir, 'add', 'test-hooks');
-  git(dir, 'config', 'core.hooksPath', '/dev/null');
+  git(dir, 'config', 'core.hooksPath', noHooksPath());
   git(dir, 'commit', '-q', '-m', 'chore: hook');
-  git(dir, 'config', 'core.hooksPath', hooks);
+  git(dir, 'config', 'core.hooksPath', gitPath(hooks));
   const head = git(dir, 'rev-parse', 'HEAD');
 
   const r = runCli(['release', 'minor', '--yes', '--date', '2026-03-04'], { cwd: dir });
@@ -479,11 +479,7 @@ test('release: invalid release.* profile fields are errors for --check and refus
 test('release --yes: refused in a repository without commits; nothing is written', () => {
   const dir = tempDir();
   git(dir, 'init', '-q', '-b', 'main');
-  git(dir, 'config', 'user.email', 'test@example.com');
-  git(dir, 'config', 'user.name', 'test');
-  git(dir, 'config', 'commit.gpgsign', 'false');
-  git(dir, 'config', 'tag.gpgsign', 'false');
-  git(dir, 'config', 'core.hooksPath', '/dev/null');
+  configureRepo(dir);
   writeProfile(dir, { release: { version_files: ['package.json'] } });
   write(dir, 'CHANGELOG.md', RELEASE_CHANGELOG);
   write(dir, 'package.json', '{ "version": "0.1.0" }\n');

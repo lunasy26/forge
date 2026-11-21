@@ -43,6 +43,33 @@ test('push to a protected branch is denied in every spelling', () => {
   assert.equal(decide('git push origin HEAD', 'master'), 'deny', 'HEAD on master');
 });
 
+test('git by path, with .exe or in capitals is still git', () => {
+  for (const cmd of [
+    '/usr/bin/git push origin main',
+    '/usr/local/bin/git push --force origin feature/x',
+    'git.exe push --force origin feature/x',
+    'GIT push origin main',
+    './bin/git.EXE commit --no-verify -m x',
+    'command /usr/bin/git push origin main',
+  ]) {
+    assert.equal(decide(cmd), 'deny', cmd);
+  }
+  for (const cmd of ['/usr/bin/git push origin feature/x', 'git.exe status', 'gitk --all', 'git-lfs push origin main', 'legit push origin main']) {
+    assert.equal(decide(cmd), 'allow', cmd);
+  }
+});
+
+test('rm and shells by path or with .exe are still recognised', () => {
+  assert.equal(decide('/bin/rm -rf /etc'), 'ask');
+  assert.equal(decide('rm.exe -rf /etc'), 'ask');
+  assert.equal(decide('/bin/bash -c "git push origin main"'), 'deny');
+  assert.equal(decide('BASH -c "git push origin main"'), 'deny');
+  assert.equal(decide('EVAL git push origin main'), 'deny');
+  assert.equal(decide('/bin/rm -rf build'), 'allow');
+  assert.equal(decide('rmdir /etc/x'), 'allow');
+  assert.equal(decide('/bin/bash -c "git status"'), 'allow');
+});
+
 test('normal pushes are allowed', () => {
   for (const cmd of ['git push', 'git push -u origin feature/x', 'git push origin feature/x', 'git push --tags', 'git push --dry-run origin main']) {
     assert.equal(decide(cmd), 'allow', cmd);
@@ -110,6 +137,107 @@ test('protected files', () => {
   assert.equal(checkFile(join(root, '.env.example'), opts).decision, 'allow');
   assert.equal(checkFile(join(root, 'src/index.ts'), opts).decision, 'allow');
   assert.equal(checkFile('/Users/someone/.ssh/id_ed25519', opts).decision, 'deny');
+});
+
+test('protected files match regardless of case, on every OS', () => {
+  const opts = { root, protectedFiles: DEFAULT_PROTECTED_FILES };
+  for (const f of ['.ENV', '.Env.local', 'sub/KEY.PEM', 'ID_RSA', '.EnvRc', 'apps/Id_Ed25519']) {
+    assert.equal(checkFile(join(root, f), opts).decision, 'deny', f);
+  }
+  for (const f of ['.env.example', '.ENV.EXAMPLE', 'environment.ts', 'docs/env.md', 'src/Index.TS']) {
+    assert.equal(checkFile(join(root, f), opts).decision, 'allow', f);
+  }
+  const custom = { root, protectedFiles: [...DEFAULT_PROTECTED_FILES, 'secrets/**'] };
+  assert.equal(checkFile(join(root, 'Secrets/x'), custom).decision, 'deny');
+  assert.equal(checkFile(join(root, 'secrets/x'), custom).decision, 'deny');
+  assert.equal(checkFile(join(root, 'secret/x'), custom).decision, 'allow');
+});
+
+test('wrapper commands are seen through by path, case and .exe', () => {
+  for (const cmd of [
+    '/usr/bin/env git push origin main',
+    'env.exe git push origin main',
+    'SUDO git push origin main',
+    '/usr/bin/sudo git push -f origin feature/x',
+    '/usr/bin/env -i FOO=1 git push origin main',
+    'sudo /usr/bin/env git push origin main',
+  ]) {
+    assert.equal(decide(cmd), 'deny', cmd);
+  }
+  for (const cmd of [
+    '/usr/bin/env node script.js',
+    'envsubst < a > b',
+    'sudoku',
+    'env git status',
+    '/usr/bin/env git push origin feature/x',
+  ]) {
+    assert.equal(decide(cmd), 'allow', cmd);
+  }
+});
+
+test('wrapper options and arguments are skipped, more wrappers are seen through', () => {
+  for (const cmd of [
+    'nice -n 5 git push origin main',
+    'nice -n5 git push origin main',
+    'nice --adjustment 5 git push origin main',
+    'nice --adjustment=5 git push origin main',
+    'sudo -u root git push -f',
+    'sudo --user=root git push -f',
+    'sudo --user root git push -f',
+    'sudo -E -u root -g wheel git push origin main',
+    'doas -u root git push origin main',
+    'timeout 10 git push origin main',
+    'timeout -s KILL 10 git push origin main',
+    'timeout --signal=KILL --kill-after=5 10 git push origin main',
+    'xargs git push origin main',
+    'xargs -n 1 git push origin main',
+    'xargs -I{} git push {} main',
+    'stdbuf -o0 git push --force',
+    'stdbuf -i0 -oL -eL git push origin main',
+    'env -C /tmp git push origin main',
+    'env -u HOME FOO=1 git push origin main',
+    'env -S "git push origin main"',
+    'ionice -c 3 git push origin main',
+    'chrt 10 git push origin main',
+    'chrt -f 10 git push origin main',
+    'taskset 0x1 git push origin main',
+    'taskset -c 0,1 git push origin main',
+    'time -f %e git push origin main',
+    'watch -n 5 git push origin main',
+    "watch 'git push origin main'",
+    'nohup timeout 10 nice -n 5 sudo -u root git push origin main',
+    'timeout 10 rm -rf /etc/x',
+    'nice -n 5 bash -c "git push origin main"',
+    // safety net: an option the table does not know may take an argument
+    'sudo --made-up value git push origin main',
+    'nice --made-up 5 git push origin main',
+  ]) {
+    assert.notEqual(decide(cmd), 'allow', cmd);
+  }
+  for (const cmd of [
+    'timeout 10 git push origin feature/x',
+    'timeout 10 npm test',
+    'nice -n 5 make',
+    'sudo -u root ls',
+    'sudo -u git ls',
+    'sudo --user=git ls',
+    'doas -u git ls',
+    'xargs grep foo',
+    'xargs -n 1 echo git push origin main',
+    'sudo echo git push origin main',
+    'env -u git ls',
+    'timeout 10 echo git push origin main',
+    'stdbuf -o0 cat git',
+    'ionice -c 3 ls',
+    'watch -n 5 ls',
+    'watch git status',
+    'nice -n 5 echo rm -rf /etc/x',
+  ]) {
+    assert.equal(decide(cmd), 'allow', cmd);
+  }
+  assert.equal(decide('sudo -u root git push -f'), 'deny');
+  assert.equal(decide('timeout 10 git push origin main'), 'deny');
+  assert.equal(decide('xargs git push origin main'), 'deny');
 });
 
 test('commands inside substitutions are checked like top-level commands', () => {
@@ -388,4 +516,31 @@ test('eval -- and short git option prefixes', () => {
   assert.equal(decide('git push --force-w origin feature/x'), 'allow');
   assert.equal(decide('git push --force-if --force-with-lease origin feature/x'), 'allow');
   assert.equal(decide('git push --dry-run origin main'), 'allow');
+});
+
+test('PowerShell and cmd started from Bash are checked with the PowerShell rules', () => {
+  for (const cmd of [
+    'pwsh -c "git push --force"',
+    'pwsh -NoProfile -Command "git push origin main"',
+    "powershell.exe -Command 'git commit --no-verify -m x'",
+    'pwsh -c "iex \'git push -f\'"',
+    'sudo pwsh -c "git push --force"',
+  ]) {
+    assert.equal(decide(cmd), 'deny', cmd);
+  }
+  for (const cmd of [
+    'pwsh -EncodedCommand ZQBjAGgAbwA=',
+    'powershell -enc ZQBjAGgAbwA=',
+    'pwsh -c "Remove-Item -Recurse /etc"',
+    'pwsh -c "Get-ChildItem | Remove-Item -Recurse"',
+    'cmd /c "git push -f"',
+    'cmd //c "git push -f"',
+    'cmd.exe /C "rd /s /q build"',
+  ]) {
+    assert.equal(decide(cmd), 'ask', cmd);
+  }
+  for (const cmd of ['pwsh -File build.ps1', 'pwsh -c "Get-Date"', "powershell -Command 'git status'", 'pwsh -NoLogo', 'cmd /c dir', 'cmd //c "echo hi"']) {
+    assert.equal(decide(cmd), 'allow', cmd);
+  }
+  assert.match(checkBash('pwsh -EncodedCommand ZQBjAGgAbwA=', ctx()).reason, /EncodedCommand/);
 });

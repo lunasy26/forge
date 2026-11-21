@@ -26,11 +26,12 @@ The plugin layout follows the Claude Code [plugins reference](https://code.claud
 ## Running tests
 
 ```bash
-npm test                              # FORGE_LANG=ru node --test test/*.test.mjs (unquoted: the shell expands the glob, Node 20 can't)
-node --test test/guards.test.mjs      # one file (without FORGE_LANG: English; the tests of the Russian messages need FORGE_LANG=ru)
+npm test                                                          # all tests: node test/run.mjs
+node test/run.mjs test/guards.test.mjs                            # one file
+node test/run.mjs --test-name-pattern "force" test/guards.test.mjs  # tests by name
 ```
 
-`npm test` runs with `FORGE_LANG=ru`, so most tests assert the Russian messages. The English ones live in `test/*-en.test.mjs` (`cli-en`, `core-en`, `guards-en`, `hooks-en`) and pin the language themselves. Language resolution and the catalog parity test are in `test/i18n.test.mjs`.
+`test/run.mjs` is a portable wrapper over `node --test` (works on Windows too: no shell glob or env prefix): it collects `test/*.test.mjs` itself, passes other options through and sets `FORGE_LANG=ru` unless it is already set. So most tests assert the Russian messages. The English ones live in `test/*-en.test.mjs` (`cli-en`, `core-en`, `guards-en`, `hooks-en`) and pin the language themselves. Language resolution and the catalog parity test are in `test/i18n.test.mjs`.
 
 ## Testing hooks
 

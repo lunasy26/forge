@@ -7,7 +7,7 @@ import {
 } from '../lib/docs.mjs';
 import { DEFAULT_DOCS_MAX_LINES, defaultProfile, loadProfile, validateProfile } from '../lib/profile.mjs';
 import { matchList } from '../lib/glob.mjs';
-import { git, gitRepo, tempDir, write, writeProfile } from './helpers.mjs';
+import { git, gitRepo, symlinkSkip, tempDir, write, writeProfile } from './helpers.mjs';
 
 const LINK = '@AGENTS.md\n';
 const lines = (n, prefix = 'line') => Array.from({ length: n }, (_, i) => `${prefix} ${i + 1}`).join('\n') + '\n';
@@ -463,7 +463,7 @@ const unix = process.platform !== 'win32';
 const asRoot = typeof process.getuid === 'function' && process.getuid() === 0;
 
 for (const useGit of [true, false]) {
-  test(`symlinked CLAUDE.md -> AGENTS.md is a valid link (${useGit ? 'git' : 'no git'})`, { skip: !unix }, () => {
+  test(`symlinked CLAUDE.md -> AGENTS.md is a valid link (${useGit ? 'git' : 'no git'})`, { skip: symlinkSkip() }, () => {
     const dir = useGit ? gitRepo() : tempDir();
     write(dir, 'AGENTS.md', '# root\n`sub/` — area\n');
     symlinkSync('AGENTS.md', join(dir, 'CLAUDE.md'));
@@ -540,7 +540,7 @@ test('fixDocs: an unwritable empty CLAUDE.md is reported, not thrown', { skip: !
   }
 });
 
-test('fixDocs: a dangling CLAUDE.md symlink is skipped with a reason', { skip: !unix }, () => {
+test('fixDocs: a dangling CLAUDE.md symlink is skipped with a reason', { skip: symlinkSkip() }, () => {
   const dir = tempDir();
   write(dir, 'AGENTS.md', '# x\n');
   symlinkSync('nowhere.md', join(dir, 'CLAUDE.md'));

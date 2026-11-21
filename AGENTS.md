@@ -30,8 +30,8 @@ forge — плагин Claude Code на Node ≥ 20 (ESM, `.mjs`, ни одно�
 
 ```bash
 npm test                                                  # все тесты
-node --test test/guards.test.mjs                          # один файл
-node --test --test-name-pattern "force" test/guards.test.mjs
+node test/run.mjs test/guards.test.mjs                    # один файл
+node test/run.mjs --test-name-pattern "force" test/guards.test.mjs
 
 # CLI против временного проекта
 tmp=$(mktemp -d) && git -C "$tmp" init -q -b main

@@ -3,11 +3,13 @@
 // FORGE_TEST_BROKEN_MODULE (e.g. "paths") fails to load at all. Not used by the plugin itself.
 import * as nodeModule from 'node:module';
 
-const guards = 'const boom = () => { throw new Error("guard exploded"); };\nexport const checkBash = boom;\nexport const checkFile = boom;\n';
+const guards = 'const boom = () => { throw new Error("guard exploded"); };\nexport const checkBash = boom;\nexport const checkPowerShell = boom;\nexport const checkFile = boom;\n';
 const broken = 'throw new Error("module failed to load");\n';
 const replacement = (url, brokenName) => {
-  if (brokenName && url.endsWith(`/lib/${brokenName}.mjs`)) return broken;
-  if (url.endsWith('/lib/guards.mjs')) return guards;
+  // module URLs always use "/", but stay agnostic of the separator anyway
+  const path = url.replace(/\\/g, '/');
+  if (brokenName && path.endsWith(`/lib/${brokenName}.mjs`)) return broken;
+  if (path.endsWith('/lib/guards.mjs')) return guards;
   return null;
 };
 

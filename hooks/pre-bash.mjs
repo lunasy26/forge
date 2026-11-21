@@ -1,4 +1,5 @@
-// PreToolUse(Bash): git and rm guards. Silent on allow so normal permissions still apply.
+// PreToolUse(Bash|PowerShell): git and delete guards; the PowerShell tool gets the PowerShell reading of
+// the same rules. Silent on allow so normal permissions still apply.
 // Unlike the other hooks this one fails closed: if the guard itself breaks (a module that does not
 // load, the project root, the check), the user is asked. Only unreadable input passes silently.
 // Rendered in the catch below: the i18n module may be the very thing that failed to load.
@@ -22,7 +23,7 @@ if (typeof command !== 'string' || !command.trim()) process.exit(0);
 let root = null;
 let verdict;
 try {
-  const [{ checkBash }, { loadProfile }, { projectRoot }, { initLang }] = await Promise.all([
+  const [{ checkBash, checkPowerShell }, { loadProfile }, { projectRoot }, { initLang }] = await Promise.all([
     import('../lib/guards.mjs'),
     import('../lib/profile.mjs'),
     import('../lib/paths.mjs'),
@@ -31,7 +32,8 @@ try {
   root = projectRoot(input.cwd);
   initLang(root, input);
   const { profile } = loadProfile(root);
-  verdict = checkBash(command, { cwd: input.cwd || root, root, protectedBranches: profile.git.protected_branches });
+  const check = input.tool_name === 'PowerShell' ? checkPowerShell : checkBash;
+  verdict = check(command, { cwd: input.cwd || root, root, protectedBranches: profile.git.protected_branches });
 } catch (err) {
   try {
     (await import('../lib/util.mjs')).logError(root, 'pre-bash', err);

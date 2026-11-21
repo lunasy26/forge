@@ -8,6 +8,6 @@
     "node": ">=20"
   },
   "scripts": {
-    "test": "FORGE_LANG=ru node --test test/*.test.mjs"
+    "test": "node test/run.mjs"
   }
 }

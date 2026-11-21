@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { emptyConfigDir, git, gitRepo, PLUGIN_ROOT, runHookScript, tempDir, write, writeProfile } from './helpers.mjs';
+import { configureRepo, emptyConfigDir, git, gitRepo, PLUGIN_ROOT, runHookScript, tempDir, write, writeProfile } from './helpers.mjs';
 
 /** A project whose "test" step passes or fails depending on the content of status.txt. */
 function projectWithCheck({ on_stop = 'full', lint = false } = {}) {
@@ -107,6 +107,32 @@ test('pre-bash: deny JSON for a protected push, silence for ordinary commands', 
   assert.equal(ok.code, 0);
 });
 
+test('pre-bash: the PowerShell tool is guarded with PowerShell rules', () => {
+  const repo = gitRepo('feature/x');
+  const run = (command) => runHookScript('pre-bash', { cwd: repo, tool_name: 'PowerShell', tool_input: { command } }, { projectDir: repo });
+  const deny = run('git push origin main');
+  assert.equal(deny.code, 0);
+  assert.equal(deny.json.hookSpecificOutput.permissionDecision, 'deny');
+  assert.match(deny.json.hookSpecificOutput.permissionDecisionReason, /main/);
+  assert.equal(run('iex "git push --force"').json.hookSpecificOutput.permissionDecision, 'deny');
+  assert.equal(run('powershell -EncodedCommand ZQBjAGgAbwA=').json.hookSpecificOutput.permissionDecision, 'ask');
+  assert.equal(run('Get-ChildItem x | Remove-Item -Recurse').json.hookSpecificOutput.permissionDecision, 'ask');
+  for (const command of ['git status; Get-ChildItem -Recurse', 'Remove-Item .\\build -Recurse -Force', 'echo "git push --force"']) {
+    const ok = run(command);
+    assert.equal(ok.stdout, '', command);
+    assert.equal(ok.code, 0, command);
+  }
+  // hooks.json routes both shell tools to this hook
+  const config = JSON.parse(readFileSync(join(PLUGIN_ROOT, 'hooks', 'hooks.json'), 'utf8'));
+  const entry = config.hooks.PreToolUse.find((h) => h.hooks[0].command.includes('pre-bash.mjs'));
+  assert.deepEqual(entry.matcher.split('|').sort(), ['Bash', 'PowerShell']);
+  // a PowerShell-only spelling is not read as Bash, and a Bash-only one not as PowerShell
+  assert.equal(
+    runHookScript('pre-bash', { cwd: repo, tool_name: 'Bash', tool_input: { command: 'iex "git push --force"' } }, { projectDir: repo }).stdout,
+    '',
+  );
+});
+
 test('pre-edit: protected file denied, profile can unprotect', () => {
   const repo = gitRepo();
   const env = runHookScript('pre-edit', { cwd: repo, tool_name: 'Edit', tool_input: { file_path: join(repo, '.env') } }, { projectDir: repo });
@@ -123,6 +149,9 @@ test('guard hooks fail closed: an error inside the guard asks instead of allowin
   assert.equal(bash.code, 0);
   assert.equal(bash.json?.hookSpecificOutput.permissionDecision, 'ask');
   assert.match(bash.json.hookSpecificOutput.permissionDecisionReason, /forge/);
+  const ps = runHookScript('pre-bash', { cwd: repo, tool_name: 'PowerShell', tool_input: { command: 'Get-Date' } }, { projectDir: repo, env: throwing });
+  assert.equal(ps.code, 0);
+  assert.equal(ps.json?.hookSpecificOutput.permissionDecision, 'ask');
   const edit = runHookScript('pre-edit', { cwd: repo, tool_name: 'Edit', tool_input: { file_path: join(repo, 'a.txt') } }, { projectDir: repo, env: throwing });
   assert.equal(edit.json?.hookSpecificOutput.permissionDecision, 'ask');
 
@@ -140,6 +169,8 @@ test('guard hooks fail closed when a module fails to load or the project root ca
     const bash = runHookScript('pre-bash', { cwd: repo, tool_name: 'Bash', tool_input: { command: 'ls' } }, { projectDir: repo, env });
     assert.equal(bash.code, 0, mod);
     assert.equal(bash.json?.hookSpecificOutput.permissionDecision, 'ask', `pre-bash, broken ${mod}`);
+    const ps = runHookScript('pre-bash', { cwd: repo, tool_name: 'PowerShell', tool_input: { command: 'Get-Date' } }, { projectDir: repo, env });
+    assert.equal(ps.json?.hookSpecificOutput.permissionDecision, 'ask', `pre-bash PowerShell, broken ${mod}`);
     const edit = runHookScript('pre-edit', { cwd: repo, tool_name: 'Edit', tool_input: { file_path: join(repo, 'a.txt') } }, { projectDir: repo, env });
     assert.equal(edit.json?.hookSpecificOutput.permissionDecision, 'ask', `pre-edit, broken ${mod}`);
   }
@@ -455,8 +486,8 @@ test('stop docs: a new top-level directory is reminded once', () => {
 
 /** `git init` in an existing directory with a committed package.json. */
 function nestedRepo(dir) {
-  for (const args of [['init', '-q', '-b', 'main'], ['config', 'user.email', 't@example.com'], ['config', 'user.name', 't'],
-    ['config', 'commit.gpgsign', 'false'], ['config', 'core.hooksPath', '/dev/null']]) git(dir, ...args);
+  git(dir, 'init', '-q', '-b', 'main');
+  configureRepo(dir);
   write(dir, 'package.json', PKG);
   git(dir, 'add', 'package.json');
   git(dir, 'commit', '-q', '-m', 'base');
