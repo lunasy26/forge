@@ -10,6 +10,8 @@
 
 ## [Unreleased]
 
+## [0.4.0] — 2026-11-21
+
 ### Added
 - Раздел профиля `release` — выпуски и журнал изменений, включаются по желанию: `changelog` (путь, по умолчанию
   `CHANGELOG.md`), `tag_prefix` (`v`), `version_files` (файлы с версией: путь — обработчик по имени для
@@ -179,7 +181,8 @@
 - Скиллы `/forge:init`, `/forge:mode`, `/forge:plan`, `/forge:execute`, `/forge:review`; CLI `forge` с командами
   `init`, `state`, `mode`, `route`, `verify`, `doctor`.
 
-[Unreleased]: https://github.com/lunasy26/forge/compare/v0.3.0...HEAD
+[Unreleased]: https://github.com/lunasy26/forge/compare/v0.4.0...HEAD
+[0.4.0]: https://github.com/lunasy26/forge/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/lunasy26/forge/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/lunasy26/forge/compare/v0.1.0...v0.2.0
 [0.1.0]: https://github.com/lunasy26/forge/releases/tag/v0.1.0
