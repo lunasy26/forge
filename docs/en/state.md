@@ -30,6 +30,6 @@ There is one state per working directory. Run parallel sessions in separate work
 
 ## Limitations
 
-- The edit journal is reset only when all active cursors have caught up (`verify.edits_offset`, `lint_offset`, `docs.offset` if present; the last one is shared by both Stop reminders). The cursor of a consumer that doesn't run (no `format`/`lint` commands, `verify.on_stop: "off"`) stays at 0 and prevents the reset — this was the case before `forge docs` as well.
+- The edit journal is reset only when all active cursors have caught up (`verify.edits_offset`, `lint_offset`, `docs.offset` if present; the last one is shared by both Stop reminders). The cursor of a consumer that doesn't run (no `format`/`lint` commands, `verify.on_stop: "off"`) stays at 0 and prevents the reset — this was the case before `forge docs` as well. A verification skipped for lack of a shell keeps `verify.edits_offset` where it was, but does not hold the journal past the size limit.
 - One session per working directory: two sessions in one checkout share `.forge/state.json` and the edit journal.
 - Only edit tools write to the journal ([hook limitations](hooks.md#limitations)).

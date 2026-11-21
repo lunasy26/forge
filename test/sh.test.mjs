@@ -6,7 +6,10 @@ import { verifyAndRecord } from '../lib/cli.mjs';
 import { loadProfile } from '../lib/profile.mjs';
 import { loadState, updateState } from '../lib/state.mjs';
 import { failureReport, runShell, runSteps, shellMissingNotice, summarize } from '../lib/verify.mjs';
-import { gitRepo, tempDir, writeProfile } from './helpers.mjs';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
+import { recordEdit } from '../lib/edits.mjs';
+import { gitRepo, tempDir, write, writeProfile } from './helpers.mjs';
 
 setLang('ru'); // assertions below check the Russian texts
 
@@ -166,4 +169,38 @@ test('shellMissingNotice: the user is told once, and again after commands ran', 
   assert.equal(real.result.ok, true);
   assert.equal(loadState(dir).shell_missing_notified, undefined);
   assert.match(shellMissingNotice(dir), /Git Bash/);
+});
+
+test('verifyAndRecord: no shell keeps the verify cursor, so the waiting edits are checked once the shell is there', { skip: process.platform === 'win32' }, () => {
+  const dir = project({ lint: 'node seen.mjs {files}' }, ['lint']);
+  write(dir, 'seen.mjs', "import { writeFileSync } from 'node:fs';\nwriteFileSync('seen.txt', process.argv.slice(2).join(','));\n");
+  write(dir, 'a.txt', 'a');
+  recordEdit(dir, join(dir, 'a.txt'));
+  verifyAndRecord(dir, profileOf(dir), { shell: null });
+  assert.equal(loadState(dir).verify.edits_offset, 0, 'nothing was checked');
+  verifyAndRecord(dir, profileOf(dir), { shell: null });
+  assert.equal(loadState(dir).verify.edits_offset, 0, 'still waiting');
+  const real = verifyAndRecord(dir, profileOf(dir), { shell: '/bin/sh' });
+  assert.equal(real.result.ok, true);
+  assert.equal(readFileSync(join(dir, 'seen.txt'), 'utf8'), 'a.txt', 'the edit made without a shell is verified now');
+  assert.ok(loadState(dir).verify.edits_offset > 0, 'the cursor moves after a real run');
+});
+
+test('verifyAndRecord: without a shell the edit log still rotates at its limit', () => {
+  const big = (cursors) => {
+    const dir = project();
+    const log = write(dir, '.forge/edits.jsonl', `${JSON.stringify({ t: 0, f: 'gone.txt' })}\n`.repeat(12000));
+    const size = readFileSync(log).length;
+    write(dir, '.forge/state.json', { version: 1, lint_offset: size, verify: { edits_offset: 100 }, ...cursors(size) });
+    return { dir, log, size };
+  };
+  const caughtUp = big(() => ({}));
+  verifyAndRecord(caughtUp.dir, profileOf(caughtUp.dir), { shell: null });
+  assert.equal(readFileSync(caughtUp.log).length, 0, 'log truncated although verify waits');
+  assert.deepEqual([loadState(caughtUp.dir).verify.edits_offset, loadState(caughtUp.dir).lint_offset], [0, 0]);
+  // another consumer that lags still holds the log
+  const lagging = big((size) => ({ docs: { offset: size - 10 } }));
+  verifyAndRecord(lagging.dir, profileOf(lagging.dir), { shell: null });
+  assert.equal(readFileSync(lagging.log).length, lagging.size, 'log kept');
+  assert.equal(loadState(lagging.dir).verify.edits_offset, 100, 'verify cursor kept');
 });

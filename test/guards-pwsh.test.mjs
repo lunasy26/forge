@@ -462,6 +462,13 @@ test('pwsh: code built through the PowerShell API asks', () => {
     assert.equal(win(cmd).decision, 'ask', cmd);
   }
   assert.match(win("[powershell]::Create().AddScript('x').Invoke()").reason, /AddScript/);
+  for (const cmd of ["$ExecutionContext.InvokeCommand.ExpandString('$(git push -f)')", '$ExecutionContext.InvokeCommand.ExpandString($s)', '$ExecutionContext.InvokeCommand. ExpandString ("x")']) {
+    assert.equal(win(cmd).decision, 'ask', cmd);
+  }
+  assert.match(win("$ExecutionContext.InvokeCommand.ExpandString('x')").reason, /ExpandString/);
+  for (const cmd of ["$ExecutionContext.InvokeCommand.GetCommand('git', 'Application')", 'Write-Host ExpandString', "$s.ExpandStrings('x')"]) {
+    assert.equal(win(cmd).decision, 'allow', cmd);
+  }
   for (const cmd of ["$list.Add('git push')", '[powershell]::Create()', "$sb.AppendLine('x')", '$x.AddRange(@(1,2))']) {
     assert.equal(win(cmd).decision, 'allow', cmd);
   }
@@ -578,4 +585,116 @@ test('pwsh: (git branch --show-current) as the refspec is the current branch', (
   // other groups still hide the branch
   assert.equal(win('git push origin (Get-Branch)').decision, 'ask');
   assert.equal(win('git push origin $(Get-Branch)', main).decision, 'allow');
+});
+
+test('pwsh: Set-Location, Push-Location and Pop-Location behind a wrapper leave the location alone', () => {
+  for (const cmd of [
+    'sudo cd C:\\Users\\me\\AppData\\Local\\Temp\\x; Remove-Item -Recurse -Force ..\\project',
+    'sudo Set-Location C:\\Users\\me\\AppData\\Local\\Temp\\x; Remove-Item -Recurse ..\\project',
+    'env Push-Location C:\\Users\\me\\AppData\\Local\\Temp\\x; Remove-Item -Recurse ..\\project',
+    'cd C:\\Users\\me\\AppData\\Local\\Temp\\x; Push-Location C:\\work\\project; sudo Pop-Location; Remove-Item -Recurse ..\\project',
+  ]) {
+    assert.equal(win(cmd).decision, 'ask', cmd);
+  }
+  for (const cmd of ['sudo cd /tmp/x; Remove-Item -Recurse -Force ../project', 'timeout 5 Set-Location /tmp/x; Remove-Item -Recurse ../project']) {
+    assert.equal(nix(cmd).decision, 'ask', cmd);
+  }
+  for (const cmd of [
+    'sudo cd C:\\Users\\me\\AppData\\Local\\Temp\\x; Remove-Item -Recurse build',
+    'cd C:\\Users\\me\\AppData\\Local\\Temp\\x; Remove-Item -Recurse ..\\y',
+    'sudo Set-Location C:\\Windows; git push',
+  ]) {
+    assert.equal(win(cmd).decision, 'allow', cmd);
+  }
+});
+
+test('pwsh: the built-in functions cd.. and cd\\ change the location', () => {
+  for (const cmd of [
+    'cd..; Remove-Item -Recurse -Force project',
+    'CD..; Remove-Item -Recurse project',
+    'cd\; Remove-Item -Recurse Windows',
+    'cd..; cd..; Remove-Item -Recurse work',
+  ]) {
+    assert.equal(win(cmd).decision, 'ask', cmd);
+  }
+  assert.equal(nix('cd\; Remove-Item -Recurse etc').decision, 'ask');
+  for (const cmd of [
+    'cd..; Remove-Item -Recurse project\\build',
+    'cd\; Remove-Item -Recurse C:\\work\\project\\build',
+    'cd..; cd project; Remove-Item -Recurse build',
+    // not a function: an unknown command, the location stays
+    'cd\\work; Remove-Item -Recurse build',
+    'sudo cd..; Remove-Item -Recurse build',
+  ]) {
+    assert.equal(win(cmd).decision, 'allow', cmd);
+  }
+});
+
+test('pwsh: group and splat arguments of bash, cmd, wsl, pwsh and rm cannot hide -c, /c, the script or -rf', () => {
+  for (const cmd of ["bash -c ('git push -f')", "bash ('-c') 'git push -f'", "wsl ('git') push -f", "sh @('-c', 'git push origin main')", "pwsh -c ('git push --force')"]) {
+    assert.equal(win(cmd).decision, 'deny', cmd);
+  }
+  for (const cmd of [
+    "$a='-c','git push -f'; bash @a",
+    "cmd ('/c') 'git push -f'",
+    "cmd @('/c','rd /s /q C:\\Users')",
+    'cmd @args',
+    'bash -c (Get-Content s.sh)',
+    'wsl @a',
+    'pwsh @p',
+    'bash script.sh (Get-Date)',
+  ]) {
+    assert.equal(win(cmd).decision, 'ask', cmd);
+  }
+  assert.match(win('bash @a').reason, /bash.*@a/);
+  assert.equal(nix("rm ('-rf') ~").decision, 'ask');
+  assert.equal(nix('rm @a').decision, 'ask');
+  for (const cmd of ["bash -c ('echo hi')", "bash ('script.sh')", "cmd ('/c') 'dir'", "wsl ('ls') -la", 'bash script.sh $x', 'npm run (Get-Task)', 'node @args', "python ('x.py')"]) {
+    assert.equal(win(cmd).decision, 'allow', cmd);
+  }
+  assert.equal(nix("rm ('-f') x.tmp").decision, 'allow');
+});
+
+test('pwsh: a block that pushes and pops the location keeps the caller\'s', () => {
+  for (const cmd of [
+    "foreach ($d in 'a','b') { Push-Location $d; npm test; Pop-Location }; git push",
+    "foreach ($d in 'a','b') { pushd $d; npm test; popd }; Remove-Item -Recurse build",
+    '& { cd sub; cd .. }; Remove-Item -Recurse build',
+    'if ($x) { Push-Location C:\\Windows; Push-Location ..; Pop-Location; Pop-Location }; Remove-Item -Recurse build',
+  ]) {
+    assert.equal(win(cmd).decision, 'allow', cmd);
+  }
+  for (const cmd of [
+    "foreach ($d in 'a','b') { Push-Location $d; npm test }; git push",
+    "foreach ($d in 'a','b') { Push-Location $d; Pop-Location; Pop-Location }; Remove-Item -Recurse project",
+    '& { Push-Location C:\\Windows; Set-Location $x; Pop-Location; cd $y }; git push',
+    '& { Pop-Location; Push-Location .. }; Remove-Item -Recurse project',
+  ]) {
+    assert.equal(win(cmd).decision, 'ask', cmd);
+  }
+});
+
+test('pwsh: xargs into a shell or a bare wsl asks', () => {
+  for (const cmd of ["'git push -f' | xargs wsl", "xargs -I{} sh -c 'git push origin {}'", 'xargs sh']) {
+    assert.equal(nix(cmd).decision, 'ask', cmd);
+  }
+  for (const cmd of ["xargs -I{} sh -c 'echo {}'", 'xargs wsl --list', 'git diff --name-only | xargs git reset --']) {
+    assert.equal(nix(cmd).decision, 'allow', cmd);
+  }
+});
+
+test('pwsh: long chains of Set-Location, Push-Location, -WorkingDirectory and git -C stay linear', () => {
+  const rep = (s, n) => s.repeat(n);
+  for (const [cmd, want] of [
+    [rep('cd a; ', 40000) + 'git push --force', 'deny'],
+    [rep('Push-Location a; ', 15000) + 'git status', 'allow'],
+    ['pwsh ' + rep('-wd a ', 40000) + '-c "git push -f"', 'deny'],
+    ['git ' + rep('-C a ', 40000) + 'push --force', 'deny'],
+  ]) {
+    const started = performance.now();
+    const { decision } = win(cmd);
+    const ms = performance.now() - started;
+    assert.equal(decision, want, cmd.slice(0, 40));
+    assert.ok(ms < 1500, `${ms.toFixed(0)} ms for ${cmd.slice(0, 40)}`);
+  }
 });

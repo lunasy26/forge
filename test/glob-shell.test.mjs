@@ -353,3 +353,41 @@ test('shell: stripWrappers marks words that xargs completes and env -S strings i
   assert.equal(broken.envSplit, true);
   assert.ok(!strip("env -S 'git push x'").envSplit);
 });
+
+test('shell: stripWrappers marks the wrapper scope and the xargs replace string', () => {
+  const strip = (src) => stripWrappers(splitCommands(src)[0]);
+  for (const [src, wrapped] of [
+    ['cd /tmp', undefined],
+    ['FOO=1 cd /tmp', undefined],
+    ['! cd /tmp', undefined],
+    ['sudo cd /tmp', 'child'],
+    ['env pushd /tmp', 'child'],
+    ['timeout 5 cd /tmp', 'child'],
+    ['/usr/bin/time cd /tmp', 'child'],
+    ['command cd /tmp', 'builtin'],
+    ['builtin cd /tmp', 'builtin'],
+    ['command -v cd', 'child'],
+    ['command -p cd /tmp', 'builtin'],
+    ['time cd /tmp', 'maybe'],
+    ['time sudo cd /tmp', 'child'],
+    ['command sudo cd /tmp', 'child'],
+  ]) {
+    assert.equal(strip(src).wrapped, wrapped, src);
+    assert.equal(strip(src)[0].text, src.split(' ').find((w) => ['cd', 'pushd'].includes(w)), src);
+  }
+  for (const [src, replace] of [
+    ['xargs -I{} sh -c x', '{}'],
+    ['xargs -I {} sh -c x', '{}'],
+    ['xargs -J % sh -c x', '%'],
+    ['xargs -i sh -c x', '{}'],
+    ['xargs --replace sh -c x', '{}'],
+    ['xargs --replace=X sh -c x', 'X'],
+    ['xargs -0 -I@ sh -c x', '@'],
+  ]) {
+    const words = strip(src);
+    assert.equal(words.stdinReplace, replace, src);
+    assert.equal(words.stdinArgs, true, src);
+    assert.deepEqual(words.map((w) => w.text), ['sh', '-c', 'x'], src);
+  }
+  for (const src of ['xargs sh -c x', 'xargs -n1 sh', 'sudo sh -c x']) assert.equal(strip(src).stdinReplace, undefined, src);
+});
