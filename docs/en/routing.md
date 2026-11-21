@@ -117,6 +117,26 @@ The same mapping works:
 - **`CLAUDE_CODE_EFFORT_LEVEL`** takes precedence over the per-call effort and the agents' `effort`: with it set, every role runs at that level.
 - **A family alias follows the main session.** When the main session runs on a model of the same family, a subagent with that alias runs on the main session's version: with the main session on a specific Opus version, the `opus` roles run on it too.
 
+### Checking the setup
+
+`forge doctor` has a `Models:` line that checks whether the environment keeps the aliases working. It looks at the aliases that the current [mode](#models-by-mode)'s table row uses, and reads the variables from the process environment and from the `env` block of the Claude Code settings files (user, project `.claude/settings.json`, local `.claude/settings.local.json`); the process environment wins. Problems are printed as `!` lines:
+
+| Warning | What it means | How to fix |
+|---|---|---|
+| `CLAUDE_CODE_SUBAGENT_MODEL_FORCE is on …` | every subagent runs on one model, roles and modes have no effect | unset `CLAUDE_CODE_SUBAGENT_MODEL_FORCE`, or accept that routing is off |
+| `gateway … without a mapping for aliases …` | a gateway (`ANTHROPIC_BASE_URL` not pointing at `api.anthropic.com`) or a provider (Bedrock, Vertex, Foundry) is in use, but some aliases of the table have no `ANTHROPIC_DEFAULT_<ALIAS>_MODEL` | set the variables the line names |
+| `aliases map to the same model …` | two aliases point at one model, the tiers do not differ and the [invariants](#invariants) lose their meaning | map each alias to a different model, keeping the [alias order](#caveats) |
+| `CLAUDE_CODE_EFFORT_LEVEL=… is set` | the effort from the table is not applied | unset `CLAUDE_CODE_EFFORT_LEVEL` |
+
+```text
+! Models: CLAUDE_CODE_SUBAGENT_MODEL_FORCE is on — every subagent runs on one model (example-model), forge roles and modes have no effect
+! Models: gateway gw.example.com without a mapping for aliases haiku, opus, fable — set ANTHROPIC_DEFAULT_HAIKU_MODEL, ANTHROPIC_DEFAULT_OPUS_MODEL, ANTHROPIC_DEFAULT_FABLE_MODEL, otherwise roles may run on the wrong model
+! Models: aliases map to the same model (sonnet = opus → m1) — the tiers do not differ, "reviewer not weaker than implementer" loses its meaning
+! Models: CLAUDE_CODE_EFFORT_LEVEL=high is set — the effort from the forge table is not applied
+```
+
+With no warnings the line is `✓ Models: Anthropic directly`, `✓ Models: gateway gw.example.com` (or `provider Bedrock`), or `✓ Models: aliases sonnet → <model>, …` when aliases are mapped. Warnings don't change the exit code of `forge doctor`: it is always 0.
+
 ## Limitations
 
 - That a skill calls a role through `forge route` with the right `model` and `effort` is ensured by the model, not by mechanics ([How skills dispatch a role](#how-skills-dispatch-a-role)).
