@@ -10,12 +10,19 @@ permissions:
 
 jobs:
   test:
-    runs-on: ubuntu-latest
+    name: ${{ matrix.os }} · node ${{ matrix.node }}
+    runs-on: ${{ matrix.os }}
     strategy:
       fail-fast: false
       matrix:
+        os: [ubuntu-latest, windows-latest]
         node: [20, 22, 24]
+    defaults:
+      run:
+        shell: bash
     steps:
+      # keep LF on Windows: tests read repository files byte for byte
+      - run: git config --global core.autocrlf false
       - uses: actions/checkout@v5
       - uses: actions/setup-node@v5
         with:
