@@ -506,3 +506,76 @@ test('pwsh Remove-Item: an empty value after the colon takes the next word', () 
   }
   assert.equal(win('Remove-Item -Recurse: $false C:\\').decision, 'allow');
 });
+
+test('pwsh cmd: carets, glued switches and /r do not hide git or a recursive delete', () => {
+  for (const cmd of [
+    'cmd /c g^it push --force',
+    'cmd /c g^it push origin main',
+    'cmd /c r^d /s /q C:\\',
+    'cmd /c rd/s/q C:\\Users',
+    'cmd /c rd /q/s C:\\Users',
+    'cmd /r git push -f',
+    'cmd.exe /R "git push -f"',
+    "cmd /c 'rd /S /Q x & echo done'",
+  ]) {
+    assert.equal(win(cmd).decision, 'ask', cmd);
+  }
+  for (const cmd of ['cmd /c dir /s', 'cmd /c echo rd', 'cmd /c type README.md', 'cmd /c rd build']) {
+    assert.equal(win(cmd).decision, 'allow', cmd);
+  }
+});
+
+test('pwsh wsl: the Linux command line is checked with the Bash rules', () => {
+  for (const cmd of [
+    'wsl git push --force',
+    'wsl -e git push --force',
+    'wsl --exec git push -f',
+    'wsl -- git push origin main',
+    'wsl -d Ubuntu git push -f',
+    'wsl bash -c "git push -f"',
+    "Start-Process wsl -ArgumentList 'git','push','-f'",
+  ]) {
+    assert.equal(win(cmd).decision, 'deny', cmd);
+  }
+  for (const cmd of ['wsl --list', 'wsl -l -v', 'wsl --shutdown', 'wsl ls', 'wsl git status']) {
+    assert.equal(win(cmd).decision, 'allow', cmd);
+  }
+});
+
+test('pwsh: git push without a branch in a location known only at run time asks', () => {
+  for (const cmd of [
+    'Set-Location $dir; git push',
+    'cd $dir; git push origin',
+    'Push-Location $d; git push; Pop-Location',
+    'Start-Process git -ArgumentList push -WorkingDirectory $dir',
+    'pwsh -wd $dir -c "git push"',
+    'git -C $repo push',
+    'Set-Location $dir; git push origin HEAD',
+  ]) {
+    assert.equal(win(cmd).decision, 'ask', cmd);
+  }
+  assert.match(win('Set-Location $dir; git push').reason, /git push/);
+  for (const cmd of ['Set-Location $dir; git push --force', 'Set-Location $dir; git push origin main']) {
+    assert.equal(win(cmd).decision, 'deny', cmd);
+  }
+  for (const cmd of ['Set-Location $dir; git push origin feature/x', 'Set-Location $dir; git status', 'Set-Location $dir; Set-Location C:\\work\\project; git push']) {
+    assert.equal(win(cmd).decision, 'allow', cmd);
+  }
+});
+
+test('pwsh: (git branch --show-current) as the refspec is the current branch', () => {
+  const main = { currentBranch: () => 'main' };
+  for (const cmd of [
+    'git push origin (git branch --show-current)',
+    'git push origin $(git branch --show-current)',
+    'git push -u origin (git rev-parse --abbrev-ref HEAD)',
+    'git push origin $(git rev-parse --abbrev-ref HEAD)',
+  ]) {
+    assert.equal(win(cmd, main).decision, 'deny', cmd);
+    assert.equal(win(cmd).decision, 'allow', cmd);
+  }
+  assert.equal(win('Set-Location $d; git push origin (git branch --show-current)').decision, 'ask');
+  // other groups still hide the branch
+  assert.equal(win('git push origin (Get-Branch)').decision, 'ask');
+  assert.equal(win('git push origin $(Get-Branch)', main).decision, 'allow');
+});

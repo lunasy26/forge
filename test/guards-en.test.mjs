@@ -43,6 +43,10 @@ test('every Bash guard verdict reads in English', () => {
       ['rm -rf $(pwd)/build', 'ask', /\(path is only known at run time\)/],
       ['echo $(git status', 'ask', /unterminated substitution/],
       ['echo $(echo $(echo $(echo $(git status))))', 'ask', /nested too deeply/],
+      ['echo --force | xargs git push', 'ask', /xargs adds arguments from its input to git push/],
+      ["env -S 'git push \"x'", 'ask', /env -S string/],
+      ['cd $x; git push', 'ask', /git push without an explicit branch, in a directory known only at run time/],
+      ['cmd /c g^it push', 'ask', /cmd \/c runs git/],
     ];
     for (const [cmd, decision, re] of cases) {
       const v = checkBash(cmd, ctx());

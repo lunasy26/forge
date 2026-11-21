@@ -602,3 +602,156 @@ test('the wrapper safety net stays linear on long wrapper chains', () => {
     assert.ok(ms < 500, `${ms.toFixed(0)} ms for ${cmd.slice(0, 40)}`);
   }
 });
+
+test('cmd /c lines are checked in linear time', () => {
+  for (const [cmd, want] of [
+    ['cmd /c ' + 'del '.repeat(100000) + '; git push --force', 'deny'],
+    ['cmd /c ' + 'rd '.repeat(100000) + 'x', 'allow'],
+    ['cmd /c ' + 'rd /q'.repeat(80000) + ' /s', 'ask'],
+    ['cmd /c ' + 'del/q'.repeat(80000), 'allow'],
+  ]) {
+    const { decision, ms } = timed(cmd);
+    assert.equal(decision, want, cmd.slice(0, 40));
+    assert.ok(ms < 500, `${ms.toFixed(0)} ms for ${cmd.slice(0, 40)}`);
+  }
+});
+
+test('xargs: arguments from the input may complete git push, commit, reset, a recursive rm or a shell script', () => {
+  for (const cmd of [
+    'echo --force | xargs git push',
+    'xargs git push',
+    'xargs -0 git push origin',
+    'xargs -a list.txt git push',
+    'xargs -I{} git push origin {}',
+    'xargs git commit -m x',
+    'xargs git reset',
+    'xargs git',
+    'xargs git -C sub push',
+    'sudo xargs git push',
+    'xargs sudo git push',
+    'xargs -n1 env git push',
+    'find build -type d | xargs rm -rf',
+    'xargs rm -r',
+    'xargs -0 rm -R --',
+    "echo 'git push -f' | xargs sh -c",
+    'xargs bash -lc',
+    'xargs pwsh -c',
+    'xargs pwsh -Command Get-Date',
+    'xargs cmd /c dir',
+    'xargs wsl git status',
+  ]) {
+    assert.equal(decide(cmd), 'ask', cmd);
+  }
+  assert.match(checkBash('echo --force | xargs git push', ctx()).reason, /xargs/);
+  // a deny that is visible already wins
+  for (const cmd of ['xargs git push --force', 'xargs git push origin main', 'xargs git commit --no-verify', 'xargs -n 1 git push -f origin x']) {
+    assert.equal(decide(cmd), 'deny', cmd);
+  }
+  for (const cmd of [
+    'ls | xargs grep foo',
+    'xargs -n1 echo',
+    "find . -name '*.tmp' | xargs rm",
+    'xargs rm -f',
+    'git ls-files | xargs git add',
+    'xargs git status',
+    'xargs git log --oneline',
+    'xargs -n 1 echo git push origin main',
+    "xargs -I{} sh -c 'echo {}'",
+    'xargs bash script.sh',
+    'xargs pwsh -File build.ps1',
+    'xargs wsl --list',
+    'git push',
+    'rm -rf build',
+  ]) {
+    assert.equal(decide(cmd), 'allow', cmd);
+  }
+});
+
+test('an env -S string env cannot split gets its own reason', () => {
+  for (const cmd of ["env -S \"'git push --force\"", "env -S 'git push \"--force'", "env -S 'git push ${F'", "env -S 'ls \\"]) {
+    const v = checkBash(cmd, ctx());
+    assert.equal(v.decision, 'ask', cmd);
+    assert.match(v.reason, /env -S/, cmd);
+    assert.doesNotMatch(v.reason, /подстановк/, cmd);
+  }
+});
+
+test('git push without a branch in a directory known only at run time asks', () => {
+  for (const cmd of [
+    'cd $x; git push',
+    'cd "$DIR" && git push origin',
+    'cd - && git push',
+    'cd $x && cd sub && git push',
+    'cd $x; git push origin HEAD',
+    'cd $x; git push -u origin @',
+    'pushd $x; git push',
+    'pushd /tmp && popd && popd; git push',
+    'git -C "$repo" push',
+    'cd $x && git -C sub push',
+    'cd $x && rm -rf build',
+    'cd $x; bash -c "git push"',
+  ]) {
+    assert.equal(decide(cmd), 'ask', cmd);
+  }
+  assert.match(checkBash('cd $x; git push', ctx()).reason, /git push/);
+  for (const cmd of ['cd $x; git push --force', 'cd $x; git push origin main', 'cd $x && git commit -n -m x']) {
+    assert.equal(decide(cmd), 'deny', cmd);
+  }
+  for (const cmd of [
+    'cd $x; git push origin feature/x',
+    'cd $x; git status',
+    'cd $x; cd /work/project; git push',
+    'cd -P /work/project && git push',
+    'cd -- sub && git push',
+    'pushd sub && git push && popd',
+    'git -C "$repo" push origin feature/x',
+    'cd $x && rm -rf /tmp/build',
+    'cd && git push',
+  ]) {
+    assert.equal(decide(cmd), 'allow', cmd);
+  }
+  // a known directory is still where the branch is read
+  const branchOf = (cwd) => (cwd === '/work/main-repo' ? 'main' : 'feature/x');
+  const at = (cmd) => checkBash(cmd, { ...ctx(), currentBranch: branchOf }).decision;
+  assert.equal(at('cd /work/main-repo && git push'), 'deny');
+  assert.equal(at('pushd /work/main-repo && popd && git push'), 'allow');
+  assert.equal(at('cd -P /work/main-repo && git push'), 'deny');
+});
+
+test('git push origin $(git branch --show-current) pushes the current branch', () => {
+  for (const cmd of [
+    'git push origin $(git branch --show-current)',
+    'git push -u origin "$(git branch --show-current)"',
+    'git push origin `git branch --show-current`',
+    'git push origin $(git rev-parse --abbrev-ref HEAD)',
+    'git push origin HEAD:$(git branch --show-current)',
+    'git push origin $( git  branch --show-current )',
+  ]) {
+    assert.equal(decide(cmd, 'main'), 'deny', cmd);
+    assert.equal(decide(cmd, 'feature/x'), 'allow', cmd);
+  }
+  assert.match(checkBash('git push origin $(git branch --show-current)', ctx('main')).reason, /«main»/);
+  // the substitution runs in the shell's directory, not in git -C's
+  const branchOf = (cwd) => (cwd === root ? 'main' : 'feature/x');
+  assert.equal(checkBash('git -C /work/other push origin $(git branch --show-current)', { ...ctx(), currentBranch: branchOf }).decision, 'deny');
+  // unknown directory: the current branch is unknown too
+  assert.equal(decide('cd $x; git push origin $(git branch --show-current)'), 'ask');
+  // other run-time refspecs are left as they were
+  for (const cmd of ['git push origin $BRANCH', 'git push origin $(cat branch.txt)', 'git push origin "$(git branch --show-current)-wip"']) {
+    assert.equal(decide(cmd, 'main'), 'allow', cmd);
+  }
+});
+
+test('cd "$(git rev-parse --show-toplevel)" stays in the same repository', () => {
+  const top = 'cd "$(git rev-parse --show-toplevel)"';
+  assert.equal(decide(`${top} && git push`, 'feature/x'), 'allow');
+  assert.equal(decide(`${top} && git push`, 'main'), 'deny');
+  assert.equal(decide(`${top} && git push origin main`), 'deny');
+  assert.equal(decide('cd `git rev-parse --show-toplevel` && rm -rf build'), 'allow');
+  assert.equal(decide(`${top} && rm -rf ../other`), 'ask');
+  // any other run-time directory stays unknown
+  assert.equal(decide('cd "$(git rev-parse --git-dir)" && git push'), 'ask');
+  assert.equal(decide('cd "$(git rev-parse --show-toplevel)/sub" && git push'), 'ask');
+  // from outside the project the top of "the current repository" is unknown
+  assert.equal(checkBash(`cd /elsewhere && ${top} && git push`, ctx('feature/x')).decision, 'ask');
+});

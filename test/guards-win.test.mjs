@@ -148,3 +148,66 @@ test('isInside takes an optional path API', () => {
   assert.equal(isInside('/work/project', '/work/project/x'), true);
   assert.equal(isInside('/work/project', '/work/projectx'), false);
 });
+
+test('win32 cmd: carets, quotes, glued switches and /r do not hide git or a recursive delete', () => {
+  for (const cmd of [
+    'cmd //c g^it push --force',
+    'cmd /c g^it push origin main',
+    "cmd /c 'r^d /s /q C:\\'",
+    'cmd //c rd/s/q C:/Users',
+    'cmd //c rd /q/s C:/Users',
+    'cmd //c del/f/s/q x',
+    'cmd /c rd //s x',
+    'cmd /c "RD /S x"',
+    'cmd /c g\\"i\\"t push -f',
+    'cmd /r git push -f',
+    'cmd /R "git push -f"',
+    'cmd /s /r "rd/s x"',
+    'cmd /c "if exist x rd /s /q x"',
+  ]) {
+    assert.equal(decide(cmd), 'ask', cmd);
+  }
+  for (const cmd of ['cmd /c dir /s', 'cmd //c echo rd', 'cmd /c type README.md', 'cmd /c "echo rd & dir /s"', 'cmd /c rd build', 'cmd /c del /q x', 'cmd /c echo /rgit']) {
+    assert.equal(decide(cmd), 'allow', cmd);
+  }
+});
+
+test('win32 wsl: the Linux command line is checked with the Bash rules', () => {
+  for (const cmd of [
+    'wsl git push --force',
+    'wsl -e git push --force',
+    'wsl --exec git push -f',
+    'wsl -- git push origin main',
+    'wsl -d Ubuntu git push -f',
+    'wsl --distribution Ubuntu --user me -e git commit --no-verify -m x',
+    'wsl bash -c "git push -f"',
+    'wsl.exe -u root git push -f',
+    'wsl -e sudo git push -f',
+    'wsl ~ git push -f',
+    "wsl echo hi '&&' git push -f",
+    'sudo wsl git push -f',
+  ]) {
+    assert.equal(decide(cmd), 'deny', cmd);
+  }
+  for (const cmd of ['wsl rm -rf /', 'wsl --cd /home/me git push', 'wsl ~ git push', 'wsl -e rm -rf ~']) {
+    assert.equal(decide(cmd), 'ask', cmd);
+  }
+  for (const cmd of [
+    'wsl --list',
+    'wsl -l -v',
+    'wsl --shutdown',
+    'wsl --install -d Ubuntu',
+    'wsl',
+    'wsl ls',
+    'wsl git status',
+    'wsl -e ls -la',
+    'wsl echo git push --force',
+    'wsl -d Ubuntu git push origin feature/x',
+    "wsl 'git push -f'",
+    'wsl rm -rf build',
+  ]) {
+    assert.equal(decide(cmd), 'allow', cmd);
+  }
+  assert.equal(decide('wsl git push', { currentBranch: () => 'main' }), 'deny');
+  assert.equal(decide('wsl git push'), 'allow');
+});

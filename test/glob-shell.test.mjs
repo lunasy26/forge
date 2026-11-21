@@ -340,3 +340,16 @@ test('shell: pathological nesting is cut off as unterminated, in linear time', (
   assert.deepEqual(texts(cmds).at(-1), ['git', 'push']);
   assert.ok(cmds.every((c) => !c.unterminated), 'nesting below the cap still parses');
 });
+
+test('shell: stripWrappers marks words that xargs completes and env -S strings it cannot split', () => {
+  const strip = (src) => stripWrappers(splitCommands(src)[0]);
+  for (const src of ['xargs git push', 'sudo xargs -0 git push', 'xargs sudo git push', 'xargs -- rm -r']) {
+    assert.equal(strip(src).stdinArgs, true, src);
+  }
+  for (const src of ['git push', 'sudo git push', 'env -S "git push"', 'echo xargs git push']) {
+    assert.ok(!strip(src).stdinArgs, src);
+  }
+  const broken = strip("env -S 'git push \"x'");
+  assert.equal(broken.envSplit, true);
+  assert.ok(!strip("env -S 'git push x'").envSplit);
+});
