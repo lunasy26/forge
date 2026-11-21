@@ -14,8 +14,13 @@
 - `forge doctor` проверяет настройку моделей: читает окружение процесса и `env` из файлов настроек Claude Code и
   предупреждает (строки `!`, код выхода не меняется), если включён `CLAUDE_CODE_SUBAGENT_MODEL_FORCE`, при
   шлюзе или провайдере (Bedrock, Vertex, Foundry) у псевдонимов таблицы нет `ANTHROPIC_DEFAULT_*_MODEL`, два
-  псевдонима отображены на одну модель или задан `CLAUDE_CODE_EFFORT_LEVEL`. Без проблем выводит строку `Models:`
-  с найденной настройкой. Разбор — в [docs/ru/routing.md](docs/ru/routing.md#проверка-настройки).
+  псевдонима отображены на одну модель или задан `CLAUDE_CODE_EFFORT_LEVEL`. Если всё в порядке — строку
+  `✓ Модели: …` (`Models:` по-английски) с найденной настройкой. Разбор — в
+  [docs/ru/routing.md](docs/ru/routing.md#проверка-настройки).
+
+### Changed
+- В `plugin.json` указаны автор, домашняя страница и репозиторий; README объясняет, как обновить плагин
+  (`claude plugin update forge@forge-dev`).
 
 ## [0.4.0] — 2026-11-21
 
