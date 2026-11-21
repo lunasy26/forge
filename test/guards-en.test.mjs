@@ -30,7 +30,7 @@ test('every Bash guard verdict reads in English', () => {
   inEnglish(() => {
     const cases = [
       ['git push --mirror origin', 'deny', /--mirror overwrites every branch/],
-      ['git push origin main', 'deny', /protected branch «main»/],
+      ['git push origin main', 'deny', /protected branch "main"/],
       ['git push --force --force-with-lease origin feature/x', 'deny', /even together with --force-with-lease: --force cancels/],
       ['git push --force-with-lease origin +feature/x', 'deny', /\+refspec cancels the lease check/],
       ['git push --force origin feature/x', 'deny', /git push --force is forbidden\. For your own branch/],
@@ -58,7 +58,7 @@ test('protected file verdict reads in English and keeps the quoted data', () => 
   inEnglish(() => {
     const v = checkFile(join(root, '.env'), { root, protectedFiles: DEFAULT_PROTECTED_FILES });
     assert.equal(v.decision, 'deny');
-    assert.match(v.reason, /^forge: file «\.env» is protected \(pattern «.+» in protected_files\)\. Do not edit it/);
+    assert.match(v.reason, /^forge: file "\.env" is protected \(pattern ".+" in protected_files\)\. Do not edit it/);
     assert.doesNotMatch(v.reason, CYRILLIC);
   });
 });
@@ -68,11 +68,11 @@ test('hooks speak English under FORGE_LANG=en, including the fail-closed reason'
   const env = { FORGE_LANG: 'en' };
   const bash = runHookScript('pre-bash', { cwd: repo, tool_name: 'Bash', tool_input: { command: 'git push' } }, { projectDir: repo, env });
   const bashReason = bash.json.hookSpecificOutput.permissionDecisionReason;
-  assert.match(bashReason, /protected branch «main»/);
+  assert.match(bashReason, /protected branch "main"/);
   assert.doesNotMatch(bashReason, CYRILLIC);
 
   const edit = runHookScript('pre-edit', { cwd: repo, tool_name: 'Edit', tool_input: { file_path: join(repo, '.env') } }, { projectDir: repo, env });
-  assert.match(edit.json.hookSpecificOutput.permissionDecisionReason, /file «\.env» is protected/);
+  assert.match(edit.json.hookSpecificOutput.permissionDecisionReason, /file "\.env" is protected/);
   assert.doesNotMatch(edit.json.hookSpecificOutput.permissionDecisionReason, CYRILLIC);
 
   const throwing = { ...env, NODE_OPTIONS: `--import=${pathToFileURL(join(PLUGIN_ROOT, 'test', 'throwing-guards.mjs')).href}` };

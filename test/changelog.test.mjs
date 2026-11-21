@@ -125,8 +125,9 @@ test('bumpVersion', () => {
   assert.equal(bumpVersion('1.2.3', 'patch'), '1.2.4');
   assert.equal(bumpVersion('0.0.0', 'minor'), '0.1.0');
   assert.equal(bumpVersion('1.0.0-rc.1+build.5', 'patch'), '1.0.0');
-  assert.throws(() => bumpVersion('1.0', 'patch'), /semver/);
-  assert.throws(() => bumpVersion('1.0.0', 'huge'), /уровень/);
+  assert.throws(() => bumpVersion('1.0', 'patch'), /^Error: Не версия semver: 1\.0$/);
+  assert.throws(() => bumpVersion('1.0.0', 'huge'), /^Error: Неизвестный уровень повышения версии: huge$/);
+  assert.throws(() => compareVersions('1.0.0', 'v2'), /^Error: Не версия semver: v2$/);
 });
 
 test('bumpVersion: from a pre-release it behaves like npm', () => {

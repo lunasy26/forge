@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { existsSync, readFileSync, writeFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { checkChangelog, releaseChangelog, suggestBump } from '../lib/changelog.mjs';
+import { checkChangelog, parseChangelog, releaseChangelog, suggestBump } from '../lib/changelog.mjs';
 import { checkDocs, fitList } from '../lib/docs.mjs';
 import { getLang, setLang } from '../lib/i18n.mjs';
 import { readVersion } from '../lib/release.mjs';
@@ -97,7 +97,7 @@ test('stop in English: agent-docs and release reminders', () => {
   const r = stop(dir);
   assert.equal(r.json.decision, 'block');
   const [docs, release] = r.json.reason.split('\n\n');
-  assert.match(docs, /^forge: commands or structure changed in this task: package\.json \(scripts\)\. Check whether AGENTS\.md/);
+  assert.match(docs, /^forge: commands or structure changed in this task: package\.json \(scripts\)\. Check AGENTS\.md for anything out of date: commands, directory map, rules\. /);
   assert.match(docs, /say so and finish\.$/);
   assert.match(release, /^forge: code changed in this task \(.*lib\/a\.mjs.*\), but \[Unreleased\] in CHANGELOG\.md is empty\./);
   assert.ok(docs.length <= 600 && release.length <= 400, `lengths ${docs.length}/${release.length}`);
@@ -207,6 +207,11 @@ test('changelog library messages in English', () => {
     assert.deepEqual(issues.map((i) => i.code).sort(), ['bad-date', 'no-unreleased', 'version-order']);
     for (const issue of issues) assert.doesNotMatch(issue.message, CYRILLIC, issue.code);
     assert.match(issues.find((i) => i.code === 'version-order').message, /^Version 1\.0\.0 is above 1\.1\.0: versions must descend/);
+    const stray = checkChangelog('# Changelog\n\n## [Unreleased]\n\n[0.9.0]: https://example.com\n\n## [1.0.0] - 2026-01-01\n\n- a\n').find((i) => i.code === 'stray-link');
+    assert.match(stray.message, /: comparison links and the release won't see it\.$/);
+    const major = (text, version) => suggestBump(parseChangelog(`# Changelog\n\n## [Unreleased]\n\n### Changed\n- ${text}\n`), version);
+    assert.equal(major('BREAKING: new format', '1.0.0').reason, 'has BREAKING, "breaking change" or "несовместим"');
+    assert.match(major('BREAKING: new format', '0.3.0').reason, / \(before 1\.0 a major bump becomes minor\)$/);
   });
 });
 

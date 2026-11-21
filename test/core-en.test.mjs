@@ -7,6 +7,7 @@ import { runSteps, summarize, failureReport } from '../lib/verify.mjs';
 import { validateStateValue } from '../lib/state.mjs';
 import { trimOutput } from '../lib/util.mjs';
 import { detectProfile, detectRelease } from '../lib/detect.mjs';
+import { bumpVersion, compareVersions } from '../lib/semver.mjs';
 import { tempDir, write } from './helpers.mjs';
 
 const CYRILLIC = /\p{Script=Cyrillic}/u;
@@ -46,6 +47,8 @@ test('en: routing invariants and errors are English', () => {
   assert.ok(errors.some((e) => /^eco\.bogus: unknown role$/.test(e)));
   assert.ok(errors.includes('eco.implementer: fable is not allowed in eco mode'));
   assert.ok(errors.some((e) => /reviewer \(.+\) is weaker than implementer/.test(e)));
+  const senior = checkTable(routing, mergeTable(routing, { normal: { implementer: 'opus/high', senior: 'sonnet/low' } }));
+  assert.ok(senior.some((e) => /^normal: senior \(sonnet\/low\) is weaker than implementer \(opus\/high\) — raise routing\.normal\.senior/.test(e)), senior.join('\n'));
   const { warnings } = effectiveTable(routing, { eco: { reviewer: 'nope' } });
   assert.ok(warnings.length > 0);
   assert.equal(warnings.filter((w) => CYRILLIC.test(w)).length, 0);
@@ -69,7 +72,13 @@ test('en: state validation and trimOutput messages are English', () => {
   assert.equal(validateStateValue('stage', 'x'), 'stage: one of spec, plan, execute, review, finish or null');
   assert.equal(validateStateValue('mode', 'x'), 'mode: one of eco, normal, max or null');
   const text = Array.from({ length: 100 }, (_, i) => `line ${i}`).join('\n');
-  assert.match(trimOutput(text, 20), /… \(lines hidden: 81\)/);
+  assert.match(trimOutput(text, 20), /\n… \(81 lines hidden\)\n/);
+});
+
+test('en: semver errors are English', () => {
+  assert.throws(() => bumpVersion('1.0', 'patch'), /^Error: not a semver version: 1\.0$/);
+  assert.throws(() => bumpVersion('1.0.0', 'huge'), /^Error: unknown version bump level: huge$/);
+  assert.throws(() => compareVersions('v2', '1.0.0'), /^Error: not a semver version: v2$/);
 });
 
 test('en: init notes are English', () => {
@@ -78,11 +87,11 @@ test('en: init notes are English', () => {
   write(root, 'go.mod', 'module x\n');
   write(root, '.github/workflows/ci.yml', 'jobs:\n  a:\n    steps:\n      - run: npm publish\n');
   const { notes } = detectProfile(root);
-  assert.ok(notes.includes('package.json has no test script - set commands.test manually if there are tests.'));
+  assert.ok(notes.includes('package.json has no test script — set commands.test manually if there are tests.'));
   assert.ok(notes.some((n) => /^Another stack found: go\. The profile only describes node \(npm\);/.test(n)));
   assert.ok(notes.includes('Releases enabled: CI publishes packages (npm publish).'));
   assert.ok(notes.includes('Version in package.json: 1.2.3.'));
   assert.equal(notes.filter((n) => CYRILLIC.test(n)).length, 0);
   assert.deepEqual(detectRelease(tempDir()), { release: null, notes: [] });
-  assert.deepEqual(detectProfile(tempDir()).notes, ['Stack not recognized - describe commands manually.']);
+  assert.deepEqual(detectProfile(tempDir()).notes, ['Stack not recognized — describe commands manually.']);
 });

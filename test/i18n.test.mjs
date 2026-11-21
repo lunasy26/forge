@@ -1,10 +1,11 @@
 import { test, beforeEach, afterEach } from 'node:test';
 import assert from 'node:assert/strict';
-import { mkdtempSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
+import { mkdtempSync, readFileSync, readdirSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import {
   LANGS, setLang, getLang, t, defineCatalog, registeredCatalogs, placeholdersOf, detectLang, lastUserText, resolveLang,
+  transcriptLang,
 } from '../lib/i18n.mjs';
 import { defaultProfile, validateProfile, loadProfile } from '../lib/profile.mjs';
 import { tempDir, writeProfile } from './helpers.mjs';
@@ -116,6 +117,14 @@ test('every registered catalog has identical keys and placeholders in all langua
   }
 });
 
+test('hooks define no catalogs of their own: the parity test above only loads lib/', () => {
+  const hooksDir = new URL('../hooks/', import.meta.url);
+  for (const name of readdirSync(hooksDir).filter((f) => f.endsWith('.mjs'))) {
+    const source = readFileSync(new URL(name, hooksDir), 'utf8');
+    assert.doesNotMatch(source, /defineCatalog/, `hooks/${name} defines a catalog: move it to lib/hook-messages.mjs`);
+  }
+});
+
 test('placeholdersOf returns a sorted unique list; functions have none', () => {
   assert.deepEqual(placeholdersOf('{b} {a} {b} text'), ['a', 'b']);
   assert.deepEqual(placeholdersOf('plain'), []);
@@ -160,6 +169,51 @@ test('detectLang: threshold at 0.3 Cyrillic share', () => {
   assert.equal(detectLang('аб' + 'abcdefgh'), 'en');
   // 3 of 11 = 0.27 -> en
   assert.equal(detectLang('абв' + 'abcdefgh'), 'en');
+});
+
+test('detectLang: pasted content blocks are ignored', () => {
+  const paste = `<pasted_content id="1" lines="40">\n${'Error while compiling the module, see the full output below.\n'.repeat(40)}</pasted_content>`;
+  assert.equal(detectLang(`Почему это падает?\n${paste}`), 'ru');
+  assert.equal(detectLang(`${paste}\nПочему это падает?`), 'ru');
+  // an unclosed block runs to the end
+  assert.equal(detectLang(`Посмотри лог <pasted_content id="2">${'some english output here '.repeat(50)}`), 'ru');
+});
+
+test('detectLang: stack traces and error lines are ignored', () => {
+  const js = [
+    'Почему падает сборка?',
+    'TypeError: Cannot read properties of undefined (reading map)',
+    '    at renderList (/app/src/components/List.tsx:42:17)',
+    '    at processChild (/app/node_modules/react-dom/cjs/react-dom.development.js:3990:14)',
+    '    at Object.renderToString (/app/node_modules/react-dom/server.js:120:5)',
+  ].join('\n');
+  assert.equal(detectLang(js), 'ru');
+  const py = [
+    'Вот что выдаёт питон:',
+    'Traceback (most recent call last):',
+    '  File "/usr/lib/python3/site-packages/requests/api.py", line 59, in request',
+    '    return session.request(method=method, url=url)',
+    'requests.exceptions.ConnectionError: Max retries exceeded with url',
+  ].join('\n');
+  assert.equal(detectLang(py), 'ru');
+  const java = 'Опять ошибка\njava.lang.IllegalStateException: Expected BEGIN_OBJECT but was STRING at line one column two';
+  assert.equal(detectLang(java), 'ru');
+  // plain English prose that mentions errors still counts
+  assert.equal(detectLang('The error happens when the list is empty, please fix it'), 'en');
+});
+
+test('detectLang: only the first 16 KB is analysed', () => {
+  assert.equal(detectLang('Почини, пожалуйста, тесты' + ' '.repeat(16 * 1024) + 'english words only '.repeat(2000)), 'ru');
+  assert.equal(detectLang('1'.repeat(17 * 1024) + ' Привет, почини тесты'), null);
+});
+
+test('detectLang: URL stripping is linear', () => {
+  for (const text of ['a.'.repeat(1e5), 'a'.repeat(2e5), 'a:/'.repeat(7e4), '-a'.repeat(1e5)]) {
+    const started = performance.now();
+    detectLang(text);
+    const ms = performance.now() - started;
+    assert.ok(ms < 50, `${text.slice(0, 6)}… took ${ms.toFixed(1)} ms`);
+  }
 });
 
 // ---- lastUserText ----
@@ -224,18 +278,18 @@ test('lastUserText: missing file, empty file, bad arguments give null', () => {
   assert.equal(lastUserText(transcript(jsonl(assistant('only assistant')))), null);
 });
 
-test('lastUserText: big file with the user message early (beyond 256 KB, within 2 MB)', () => {
+test('lastUserText: big file with the user message early (beyond 2 MB, within 8 MB)', () => {
   const filler = assistant('x'.repeat(4000));
   const lines = [user('Давно написанное сообщение')];
-  for (let i = 0; i < 100; i++) lines.push(filler); // ~400 KB
+  for (let i = 0; i < 1000; i++) lines.push(filler); // ~4 MB
   const file = transcript(jsonl(...lines));
   assert.equal(lastUserText(file), 'Давно написанное сообщение');
 });
 
-test('lastUserText: a message beyond 2 MB from the end is not found', () => {
+test('lastUserText: a message beyond 8 MB from the end is not found', () => {
   const filler = assistant('x'.repeat(4000));
   const lines = [user('too far')];
-  for (let i = 0; i < 600; i++) lines.push(filler); // ~2.4 MB
+  for (let i = 0; i < 2100; i++) lines.push(filler); // ~8.4 MB
   const file = transcript(jsonl(...lines));
   assert.equal(lastUserText(file), null);
 });
@@ -244,6 +298,84 @@ test('lastUserText: a partial first line in the window does not break parsing', 
   const big = user('y'.repeat(300 * 1024));
   const file = transcript(jsonl(big, user('Привет')));
   assert.equal(lastUserText(file), 'Привет');
+});
+
+test('lastUserText: entries Claude Code writes on its own behalf are skipped', () => {
+  const file = transcript(jsonl(
+    user('Привет, почини тесты'),
+    user('This session is being continued from a previous conversation that ran out of context. Summary: ...', { isCompactSummary: true, isVisibleInTranscriptOnly: true }),
+    user('Summary of the earlier part of the conversation', { isVisibleInTranscriptOnly: true }),
+    user('<task-notification>\n<task-id>b1</task-id>\n<status>completed</status>\n<summary>Background command finished</summary>\n</task-notification>'),
+    user('Background agent finished its work and reported back', { origin: { kind: 'task-notification' } }),
+    user('A scheduled reminder fired for the session', { promptSource: 'system' }),
+    user('<bash-input>ls -la</bash-input>'),
+    user('<bash-stdout>total 0\ndrwxr-xr-x  2 user  staff  64 Jan  1 00:00 .</bash-stdout><bash-stderr></bash-stderr>'),
+    user('<bash-stderr>command not found</bash-stderr>'),
+    user('<user-prompt-submit-hook>Hook output in English</user-prompt-submit-hook>'),
+    user([{ type: 'text', text: '[Request interrupted by user]' }]),
+    user('  This session is being continued from a previous conversation.'),
+  ));
+  assert.equal(lastUserText(file), 'Привет, почини тесты');
+});
+
+test('lastUserText: a human origin and a non-system prompt source still count', () => {
+  const file = transcript(jsonl(user('first'), user('Сообщение человека', { origin: { kind: 'human' }, promptSource: 'user' })));
+  assert.equal(lastUserText(file), 'Сообщение человека');
+});
+
+test('lastUserText: IDE context blocks are dropped, the user text next to them counts', () => {
+  const opened = '<ide_opened_file>The user opened the file /repo/src/app.ts in the IDE. This may or may not be related to the current task.</ide_opened_file>';
+  const selection = '<ide_selection>The user selected the lines 1 to 3 from /repo/src/app.ts:\nconst a = 1;\n</ide_selection>';
+  assert.equal(lastUserText(transcript(jsonl(user([{ type: 'text', text: opened }, { type: 'text', text: 'Почини это' }])))), 'Почини это');
+  assert.equal(lastUserText(transcript(jsonl(user(`${selection}Объясни этот код`)))), 'Объясни этот код');
+  assert.equal(lastUserText(transcript(jsonl(user('earlier'), user([{ type: 'text', text: opened }, { type: 'text', text: selection }])))), 'earlier');
+});
+
+test('lastUserText: slash commands give their arguments', () => {
+  const cmd = (args) => `<command-message>forge:plan</command-message>\n<command-name>/forge:plan</command-name>\n<command-args>${args}</command-args>`;
+  assert.equal(lastUserText(transcript(jsonl(user('earlier'), user(cmd('добавь поддержку русского языка'))))), 'добавь поддержку русского языка');
+  assert.equal(lastUserText(transcript(jsonl(user('earlier'), user(cmd(''))))), 'earlier');
+  assert.equal(lastUserText(transcript(jsonl(user('earlier'), user(cmd('   '))))), 'earlier');
+  const nameFirst = '<command-name>/review</command-name>\n<command-message>review</command-message>\n<command-args>check the parser</command-args>';
+  assert.equal(lastUserText(transcript(jsonl(user('раньше'), user(nameFirst)))), 'check the parser');
+});
+
+test('transcriptLang: the latest detectable human message decides', () => {
+  assert.equal(transcriptLang(transcript(jsonl(user('Please fix the tests'), user('Привет, почини тесты')))), 'ru');
+  assert.equal(transcriptLang(transcript(jsonl(user('Привет, почини тесты'), assistant('Готово?'), user('да')))), 'ru');
+  assert.equal(transcriptLang(transcript(jsonl(user('Please fix the tests'), user('ок'), user('<task-notification>done</task-notification>')))), 'en');
+  assert.equal(transcriptLang(transcript(jsonl(user('ok'), user('да')))), null);
+  assert.equal(transcriptLang(join(dir, 'missing.jsonl')), null);
+  assert.equal(transcriptLang(undefined), null);
+});
+
+test('transcriptLang: an English compaction or notification after a Russian message keeps Russian', () => {
+  const file = transcript(jsonl(
+    user('Сделай, пожалуйста, рефакторинг модуля'),
+    assistant('Working on it'),
+    user('This session is being continued from a previous conversation that ran out of context.', { isCompactSummary: true }),
+    user('<task-notification>\n<status>completed</status>\n<summary>Agent finished</summary>\n</task-notification>'),
+  ));
+  assert.equal(transcriptLang(file), 'ru');
+});
+
+test('lastUserText: text next to a tool_result still counts, tool output alone does not', () => {
+  const mixed = user([{ type: 'tool_result', tool_use_id: 't1', content: 'ok' }, { type: 'text', text: 'Привет' }]);
+  assert.equal(lastUserText(transcript(jsonl(user('earlier'), mixed))), 'Привет');
+  const nested = user([{ type: 'tool_result', tool_use_id: 't1', content: [{ type: 'text', text: 'tool output text' }] }]);
+  assert.equal(lastUserText(transcript(jsonl(user('earlier'), nested))), 'earlier');
+});
+
+test('lastUserText: lines that span read chunks are read whole', () => {
+  const huge = 'Привет ' + 'я'.repeat(400 * 1024); // ~800 KB, several chunks
+  assert.equal(lastUserText(transcript(jsonl(user('earlier'), user(huge), assistant('x'.repeat(300 * 1024))))), huge);
+  // many lines of odd lengths: chunk borders fall inside lines and right before marks
+  const lines = [user('Привет, почини, пожалуйста, тесты')];
+  for (let i = 0; i < 3000; i++) lines.push(i % 7 ? assistant('w'.repeat(37 + (i % 101))) : user('ok'));
+  for (let i = 0; i < 3000; i++) lines.push(i % 5 ? toolResult() : user(`да ${'!'.repeat(i % 13)}`));
+  const file = transcript(jsonl(...lines));
+  assert.equal(lastUserText(file), 'да !!!!!!!!!!!'.slice(0, 'да '.length + (2995 % 13)));
+  assert.equal(transcriptLang(file), 'ru');
 });
 
 // ---- resolveLang ----
@@ -319,6 +451,7 @@ test('profile: language accepts auto, en, ru', () => {
 });
 
 test('profile: invalid language gives a Russian error and the default', () => {
+  setLang('ru'); // afterEach restores the language
   assert.match(validateProfile({ language: 'de' }).join('\n'), /language: одно из auto, en, ru/);
   const root = tempDir();
   writeProfile(root, { language: 'de' });

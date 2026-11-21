@@ -1,16 +1,12 @@
 // PostToolBatch: once per batch of tool calls, format + lint the files edited since the last run.
 import { editsSize, filesSince } from '../lib/edits.mjs';
-import { defineCatalog, t } from '../lib/i18n.mjs';
+import { POST_BATCH_MSG as MSG } from '../lib/hook-messages.mjs';
+import { t } from '../lib/i18n.mjs';
 import { initLang } from '../lib/lang.mjs';
 import { loadProfile } from '../lib/profile.mjs';
 import { loadState, updateState } from '../lib/state.mjs';
 import { runHook } from '../lib/util.mjs';
 import { failureReport, runSteps } from '../lib/verify.mjs';
-
-const MSG = defineCatalog({
-  en: { lint: 'forge: after your edits {report}\n\nFix this before the next steps.' },
-  ru: { lint: 'forge: после правок {report}\n\nИсправь это до следующих шагов.' },
-});
 
 runHook('post-batch', async (input, root) => {
   initLang(root, input);
