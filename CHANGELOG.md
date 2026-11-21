@@ -16,16 +16,43 @@
   переопределения маршрутизации работают как там, а не со встроенными значениями. Профиль самого worktree
   важнее; состояние, журнал правок и планы `.forge/work/` остаются своими в каждом worktree. `forge doctor` и
   начало сессии пишут «профиль из основного checkout <путь>». См. [«Профиль в worktree»](docs/ru/profile.md#профиль-в-worktree).
+- Нативный Windows. Команды профиля (формат, линт, проверка) запускаются через Git Bash из Git for Windows, а
+  не через `/bin/sh`: путь берётся из `CLAUDE_CODE_GIT_BASH_PATH`, затем рядом с `git --exec-path`, затем из
+  `Program Files` и `LocalAppData`. На Windows `forge doctor` показывает строку `✓`/`✗` про Git Bash. Без Git
+  for Windows охрана работает, а проверка, формат и линт не запускаются. Установка — в разделе Windows
+  [README.ru.md](README.ru.md#windows); синтаксис команд — [`commands`](docs/ru/profile.md#поля-профиля).
+- Охрана PowerShell. Инструмент PowerShell в Claude Code (основной на Windows; на macOS и Linux включается
+  `CLAUDE_CODE_USE_POWERSHELL_TOOL=1`) проходит те же правила, что и Bash: `git push` в защищённые ветки,
+  force, `--no-verify`, `git reset --hard`, рекурсивное удаление за пределами проекта; конструкция, которую
+  охрана не может прочитать, получает `ask`. Хук `PreToolUse` теперь срабатывает на `Bash|PowerShell`. См.
+  [«Охрана PowerShell»](docs/ru/guards.md#охрана-powershell).
 
 ### Fixed
 - `forge` без `CLAUDE_PROJECT_DIR`, запущенный в worktree внутри основного checkout, больше не принимает
   основной checkout за корень проекта (с его состоянием и журналом): поиск профиля вверх не поднимается выше
   первого каталога с `.git`.
+- Инструмент PowerShell не охранялся ни на одной ОС: `git push origin main` или `Remove-Item -Recurse` в нём
+  проходили мимо forge. Теперь их проверяет [охрана PowerShell](docs/ru/guards.md#охрана-powershell).
+- `protected_files` сопоставляются без учёта регистра: `.ENV`, `Secrets/Key.PEM` и `KEY.PEM` больше не обходят
+  [охрану файлов](docs/ru/guards.md#охрана-файлов).
+- [Охрана Bash](docs/ru/guards.md#охрана-bash) не видела команду за именем `git.exe`, `/usr/bin/git` или `GIT`
+  и за обёртками с опциями (`nice -n 5`, `sudo -u root`, `timeout 10`, `xargs`, `/usr/bin/env git …`,
+  `env -S`, `watch`). Теперь видит; `pwsh` и `cmd`, запущенные из Bash, тоже проверяются, а в рекурсивном
+  удалении читаются пути Windows и Git Bash.
 
 ### Changed
 - README (оба языка) переработан: навигация по разделам в шапке и ссылки «наверх», пошаговая установка для
-  macOS, Linux и Windows (через WSL 2; нативный Windows пока не поддерживается — команды проверки идут через
-  `/bin/sh`), проверка установки после `/plugin install`.
+  macOS, Linux и Windows, проверка установки после `/plugin install`.
+- README (оба языка): нативный Windows с Git for Windows — отдельный путь установки рядом с WSL 2, охрана
+  PowerShell в таблице возможностей.
+
+### Обновление
+- Windows без WSL: для проверки, формата и линта нужен Git for Windows (`winget install Git.Git`); если
+  Claude Code не находит Git Bash, задай `CLAUDE_CODE_GIT_BASH_PATH` в `env` файла `settings.json`.
+  `forge doctor` покажет, найден ли он. Команды в `commands` пиши на синтаксисе POSIX `sh`.
+- Если в `protected_files` ты рассчитывал на учёт регистра (например, `.env` защищён, а `.ENV` нет), теперь
+  совпадают оба написания; шаблоны менять не нужно, но проверь, что защита нужных файлов не стала шире, чем
+  задумано.
 
 ## [0.5.0] — 2026-11-21
 

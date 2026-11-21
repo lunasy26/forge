@@ -26,6 +26,8 @@ The hooks and the skills call `forge` for everything deterministic; you can run 
 | `forge doctor` | Node, plugin and project paths, [profile validity](profile.md#broken-profile), executables of the verification commands, git excludes, the [routing table](routing.md#routing-overrides), the [models setup](routing.md#checking-the-setup) (the `Models:` line: gateway, provider, alias mapping, forced subagent model and effort), [agent files](agent-docs.md#the-forge-docs-command), the [changelog](releases.md#changelog-checks) (with a `release` section), [Superpowers](../../README.md#superpowers-conflict), recent [hook errors](hooks.md#fail-open-and-fail-closed) | always 0 |
 | `forge help`, `-h`, `--help`, no arguments | Help | 0 |
 
+On Windows `forge doctor` also prints a Git Bash line, right after the profile line (only in a project with a profile): `✓ Git Bash: <path>` or `✗ Git Bash not found — install Git for Windows or set CLAUDE_CODE_GIT_BASH_PATH`. Git Bash is the shell that runs the [profile commands](hooks.md#which-shell-runs-the-commands); without it the check of command executables is skipped rather than reported as missing. On macOS and Linux there is no such line.
+
 An unknown command (or `state` subcommand) gives exit code 2, an internal CLI error gives 3. Errors are printed to stderr as `forge: …`.
 
 ## Message language

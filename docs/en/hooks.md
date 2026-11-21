@@ -22,7 +22,7 @@ Each hook is `node hooks/<name>.mjs`: it reads the event JSON on stdin and write
 | Event | Matcher | Script | What it does | Timeout, s |
 |---|---|---|---|---|
 | `SessionStart` | `startup\|resume\|clear\|compact` | `session-start.mjs` | [Short context](#session-start-context): mode, tier, checks, active task, warnings, a line about the root agent files | 10 |
-| `PreToolUse` | `Bash` | `pre-bash.mjs` | [Bash guard](guards.md#bash-guard) for git and `rm -r`: `deny` or `ask` with a reason | 10 |
+| `PreToolUse` | `Bash\|PowerShell` | `pre-bash.mjs` | [Bash guard](guards.md#bash-guard) or, for the PowerShell tool, [PowerShell guard](guards.md#powershell-guard): git and recursive delete (`rm -r`, `Remove-Item -Recurse`): `deny` or `ask` with a reason | 10 |
 | `PreToolUse` | `Edit\|Write\|MultiEdit\|NotebookEdit` | `pre-edit.mjs` | [File guard](guards.md#file-guard): `deny` for `protected_files` | 10 |
 | `PostToolUse` | `Edit\|Write\|MultiEdit\|NotebookEdit` | `post-edit.mjs` | Appends the path to the [edit journal](state.md#edit-journal) `.forge/edits.jsonl`; does nothing without a profile | 10 |
 | `PostToolBatch` | — | `post-batch.mjs` | [`format` and `lint`](#format-and-lint) on the files changed since the last run | 180 |
@@ -57,9 +57,19 @@ The whole text is cut to 600 characters.
 3. runs `format`, then `lint`, until the first failure; the total budget is 150 s;
 4. on failure returns `additionalContext`: the step, the command and up to 40 lines of output (head and tail). Claude gets it as context before its next step; the turn is not interrupted (`decision: "block"` on this event would stop the loop, and Claude would never see the reason).
 
-`{files}` in a command is replaced with the shell-quoted list of files; `ext` keeps only files with those extensions; if no files are left, the step is skipped. A command without `{files}` runs as is, over the whole project, after every batch with edits. Commands run through `/bin/sh -c` in the project root with `CI=1`, `FORCE_COLOR=0`, `NO_COLOR=1`. Lint also works with [`verify.on_stop: "off"`](#verification-on-stop).
+`{files}` in a command is replaced with the shell-quoted list of files; `ext` keeps only files with those extensions; if no files are left, the step is skipped. A command without `{files}` runs as is, over the whole project, after every batch with edits. Commands run in the project root with `CI=1`, `FORCE_COLOR=0`, `NO_COLOR=1` through [a POSIX shell](#which-shell-runs-the-commands). Lint also works with [`verify.on_stop: "off"`](#verification-on-stop).
 
 The context starts with `forge: after your edits` and ends with `Fix this before the next steps.`.
+
+### Which shell runs the commands
+
+Every command from the profile (`format`, `lint` and the [`verify.steps`](#verification-on-stop)) runs as `<shell> -c "<command>"`. On macOS and Linux the shell is `/bin/sh`. On native Windows it is Git Bash (`bash.exe` from Git for Windows), so commands written for a POSIX shell work there too. forge looks for it in this order, and the first hit wins:
+
+1. the `CLAUDE_CODE_GIT_BASH_PATH` environment variable (the same one Claude Code uses), if the file exists;
+2. `bin\bash.exe` in the Git installation next to `git --exec-path`;
+3. `%ProgramFiles%\Git`, `%ProgramFiles(x86)%\Git`, `%LOCALAPPDATA%\Programs\Git` (the `bin\bash.exe` in each).
+
+If Git Bash is not found, the step fails with the output `forge: Git Bash not found — install Git for Windows or set CLAUDE_CODE_GIT_BASH_PATH`; nothing runs under `cmd` or PowerShell instead. [`forge doctor`](cli.md#commands) shows which Git Bash was found.
 
 ## Verification on Stop
 

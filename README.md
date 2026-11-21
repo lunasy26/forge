@@ -37,12 +37,12 @@ Whatever must always or never happen is done by hooks and the `forge` CLI; skill
 ## Why forge
 
 - **Mechanics instead of pleading.** Rules that must hold every time live in hooks and a CLI, not in capitalised prompt text that the model may or may not follow.
-- **A safety net from the first session.** Push to `main`, force push, `--no-verify`, edits to `.env` and keys are stopped even in a project that was never set up.
+- **A safety net from the first session.** Push to `main`, force push, `--no-verify`, edits to `.env` and keys are stopped, in Bash and in PowerShell, even in a project that was never set up.
 - **A turn doesn't end on red.** After edits, verification runs before Claude finishes; a failure goes back to Claude, the second one in a row escalates to a `debugger` role, and the third releases the session instead of looping.
 - **The right model for each job.** Every subagent role gets a model and effort from a table, and one switch (`eco`, `normal`, `max`) moves the whole table.
 - **Quiet by default.** Allowed actions print nothing, session start adds at most 600 characters, and without a profile nothing is written to the repository.
 
-Without `.forge/profile.json` only the [Bash guard](docs/en/guards.md#bash-guard) and the [file guard](docs/en/guards.md#file-guard) run, with built-in defaults (branches `main` and `master`, `.env*` files and keys are protected). There is no lint and no auto-verification, and the hooks write nothing into the repository. In a git repository without a profile, session start adds one line suggesting `/forge:init`; outside a git repository, nothing.
+Without `.forge/profile.json` only the [Bash guard](docs/en/guards.md#bash-guard), the [PowerShell guard](docs/en/guards.md#powershell-guard) and the [file guard](docs/en/guards.md#file-guard) run, with built-in defaults (branches `main` and `master`, `.env*` files and keys are protected). There is no lint and no auto-verification, and the hooks write nothing into the repository. In a git repository without a profile, session start adds one line suggesting `/forge:init`; outside a git repository, nothing.
 
 > [!NOTE]
 > forge talks in the language you write in, English or Russian: CLI output, hook reasons (prefixed `forge:`) and profile errors. It follows your latest message in the session, then the remembered language and the system locale, and falls back to English. To force a language, set `"language": "en"` or `"ru"` in the profile, or `FORGE_LANG`; details are in [Message language](docs/en/hooks.md#message-language). The [documentation](#documentation) quotes the Russian messages verbatim and translates them in parentheses.
@@ -58,9 +58,9 @@ Without `.forge/profile.json` only the [Bash guard](docs/en/guards.md#bash-guard
 | | |
 |---|---|
 | **Node.js ≥ 20** | on `PATH`; hooks and the CLI are plain Node with zero dependencies, nothing to `npm install` |
-| **git** and **`/bin/sh`** | verification, format and lint commands run through `/bin/sh` |
+| **git** and **`/bin/sh`** | verification, format and lint commands run through `/bin/sh`, or through Git Bash on Windows |
 | **Claude Code** | with plugin hooks, including the `PostToolBatch` event |
-| **OS** | macOS, Linux, Windows through WSL 2. Native Windows is not supported yet |
+| **OS** | macOS, Linux, Windows (natively with Git for Windows, or through WSL 2) |
 
 The repository is public, no credentials are needed. `forge-dev` in the install command is the marketplace name from `.claude-plugin/marketplace.json`: the repository is its own marketplace. See [Discover and install plugins](https://code.claude.com/docs/en/discover-plugins) and [Plugin marketplaces](https://code.claude.com/docs/en/plugin-marketplaces).
 
@@ -114,7 +114,42 @@ The repository is public, no credentials are needed. `forge-dev` in the install 
 
 ### Windows
 
-forge runs on Windows inside **WSL 2**, where it behaves exactly as on Linux.
+Two ways: **natively** (PowerShell and [Git for Windows](https://git-scm.com/download/win)) or inside **WSL 2**, where forge behaves exactly as on Linux.
+
+#### Native Windows
+
+1. **Node.js and Git for Windows.** In PowerShell:
+
+   ```powershell
+   winget install OpenJS.NodeJS.LTS
+   winget install Git.Git
+   ```
+
+   Or use the installers from [nodejs.org](https://nodejs.org/en/download) and [git-scm.com](https://git-scm.com/download/win). Open a new terminal afterwards so `PATH` is refreshed.
+
+2. **Claude Code** ([setup guide](https://code.claude.com/docs/en/setup)), in PowerShell:
+
+   ```powershell
+   irm https://claude.ai/install.ps1 | iex
+   ```
+
+3. **forge.** Start `claude` and run:
+
+   ```
+   /plugin marketplace add lunasy26/forge
+   /plugin install forge@forge-dev
+   ```
+
+If Claude Code does not find Git Bash, set its path in `settings.json`:
+
+```json
+{ "env": { "CLAUDE_CODE_GIT_BASH_PATH": "C:\\Program Files\\Git\\bin\\bash.exe" } }
+```
+
+> [!NOTE]
+> Verification, format and lint commands run in Git Bash, which comes with Git for Windows. Without it the guards still work (including the [PowerShell guard](docs/en/guards.md#powershell-guard)), but those checks don't run; `forge doctor` shows whether Git Bash was found.
+
+#### WSL 2
 
 1. **WSL 2.** In PowerShell as administrator, then restart the computer:
 
@@ -124,12 +159,7 @@ forge runs on Windows inside **WSL 2**, where it behaves exactly as on Linux.
 
    This installs Ubuntu by default. Details: [Install WSL](https://learn.microsoft.com/windows/wsl/install).
 
-2. **Everything else — inside the WSL terminal.** Open Ubuntu from the Start menu and follow the [Linux](#linux) steps: Node.js and git, Claude Code with the `install.sh` script, then forge. Keep your projects in the WSL file system (`~/…`, not `/mnt/c/…`): it is much faster, and git and file watchers behave as on Linux.
-
-3. **Start Claude Code from WSL.** Run `claude` in the WSL terminal, not in PowerShell. In VS Code, open the folder through the [WSL extension](https://code.visualstudio.com/docs/remote/wsl) so the integrated terminal is WSL too.
-
-> [!WARNING]
-> **Native Windows** (Claude Code installed with `install.ps1` or `install.cmd`) is not supported yet: verification, format and lint run their commands through `/bin/sh`, which a native Windows Node cannot start. The guards are plain Node, but this setup is not tested.
+2. **Everything else — inside the WSL terminal.** Open Ubuntu from the Start menu and follow the [Linux](#linux) steps. Keep your projects in the WSL file system (`~/…`, not `/mnt/c/…`): it is much faster. Run `claude` in the WSL terminal, not in PowerShell; in VS Code, open the folder through the [WSL extension](https://code.visualstudio.com/docs/remote/wsl).
 
 ### Check the installation
 
@@ -188,6 +218,7 @@ forge replaces Superpowers and conflicts with it. If `superpowers@…` is enable
 | Feature | What you get |
 |---|---|
 | [Bash guard](docs/en/guards.md#bash-guard) | `deny` for `git push` to protected branches, force push, `--mirror`, `--no-verify`; `ask` before `git reset --hard`, `git push --all` and `rm -r` outside the project. Sees through `bash -c`, `eval` and `$(…)` |
+| [PowerShell guard](docs/en/guards.md#powershell-guard) | The same rules for Claude Code's PowerShell tool (the default shell on Windows); a construct it can't read gets `ask` |
 | [File guard](docs/en/guards.md#file-guard) | `deny` for edit tools on `.env*`, keys and paths from `protected_files` |
 | [Format and lint](docs/en/hooks.md#format-and-lint) | After each batch of tool calls, `format` and `lint` run on the files just edited; failures reach Claude as context |
 | [Verification on Stop](docs/en/hooks.md#verification-on-stop) | `verify.steps` run before a turn ends; a failure keeps the turn going, the second in a row calls in `debugger`, the third lets go |
@@ -207,7 +238,7 @@ forge replaces Superpowers and conflicts with it. If `superpowers@…` is enable
 ```mermaid
 flowchart TD
     S["SessionStart<br/>context line, agent-docs line"] --> W(["Claude works"])
-    W -- "tool call" --> G{"PreToolUse<br/>Bash guard, file guard"}
+    W -- "tool call" --> G{"PreToolUse<br/>Bash and PowerShell guards, file guard"}
     G -- "deny: reason goes to Claude" --> W
     G -- "ask: runs if the user confirms" --> T["Tool runs"]
     G -- "allowed, silent" --> T
@@ -222,7 +253,7 @@ flowchart TD
     R -- "nothing to remind" --> E
 ```
 
-[SessionStart](docs/en/hooks.md#session-start-context) adds a short context. Every tool call passes the [Bash guard](docs/en/guards.md#bash-guard) or the [file guard](docs/en/guards.md#file-guard). Edits are journaled and [formatted and linted](docs/en/hooks.md#format-and-lint) after each batch. When Claude tries to finish, [verification](docs/en/hooks.md#verification-on-stop) runs, then the one-shot reminders over one shared window of edits: the [agent docs reminder](docs/en/agent-docs.md#agent-docs-reminder) and, if the profile has a `release` section, the [reminder about an empty `[Unreleased]`](docs/en/releases.md#reminder-about-an-empty-unreleased). If both fire, Claude gets one block with both reasons. Every hook is in the [hook table](docs/en/hooks.md#hook-table).
+[SessionStart](docs/en/hooks.md#session-start-context) adds a short context. Every tool call passes the [Bash guard](docs/en/guards.md#bash-guard), the [PowerShell guard](docs/en/guards.md#powershell-guard) or the [file guard](docs/en/guards.md#file-guard). Edits are journaled and [formatted and linted](docs/en/hooks.md#format-and-lint) after each batch. When Claude tries to finish, [verification](docs/en/hooks.md#verification-on-stop) runs, then the one-shot reminders over one shared window of edits: the [agent docs reminder](docs/en/agent-docs.md#agent-docs-reminder) and, if the profile has a `release` section, the [reminder about an empty `[Unreleased]`](docs/en/releases.md#reminder-about-an-empty-unreleased). If both fire, Claude gets one block with both reasons. Every hook is in the [hook table](docs/en/hooks.md#hook-table).
 
 <p align="right"><a href="#readme-top">↑ back to top</a></p>
 
@@ -231,7 +262,7 @@ flowchart TD
 | Page | What's inside |
 |---|---|
 | [Hooks](docs/en/hooks.md) | the hook table, fail-open and fail-closed, session start context, format and lint after edits, verification on Stop, the end-of-turn reminders, message language |
-| [Guards](docs/en/guards.md) | the Bash guard and the file guard: how a command is read, rules and verdicts, abbreviated git options, recursive `rm`, protected branches and files |
+| [Guards](docs/en/guards.md) | the Bash guard, the PowerShell guard and the file guard: how a command is read, rules and verdicts, abbreviated git options, recursive `rm`, protected branches and files |
 | [Profile](docs/en/profile.md) | `.forge/profile.json`: an example, every field with its default, a broken profile, stack detection, what `forge init` writes |
 | [Model routing](docs/en/routing.md) | roles, models by mode, the retry ladder, invariants, overrides, and using other models and providers |
 | [Agent files](docs/en/agent-docs.md) | the `AGENTS.md`/`CLAUDE.md` layout, `forge docs` and its issue codes, the agent docs reminder |

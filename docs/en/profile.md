@@ -46,12 +46,12 @@ The project profile is `.forge/profile.json`. [`forge init`](#stack-detection) w
 |---|---|---|---|
 | `$schema` | string | — | `forge init` writes `./profile.schema.json` |
 | `version` | `1` | — | Format version |
-| `commands` | object: name → string or `{ "run": string, "ext": [".ext"] }` | `{}` | Shell commands. `format` and `lint` run in [`PostToolBatch`](hooks.md#format-and-lint); `test_fast` replaces `test` in a fast check; any name can be used in `verify.steps` |
+| `commands` | object: name → string or `{ "run": string, "ext": [".ext"] }` | `{}` | Shell commands, written in POSIX `sh` syntax: they run in `/bin/sh`, on Windows in Git Bash (from Git for Windows; without it checks, format and lint don't run, and [`forge doctor`](cli.md#commands) says so). `format` and `lint` run in [`PostToolBatch`](hooks.md#format-and-lint); `test_fast` replaces `test` in a fast check; any name can be used in `verify.steps` |
 | `verify.steps` | string[] | `[]` | Names from `commands`, in order ([Verification on Stop](hooks.md#verification-on-stop)). An empty list means no auto-verification. A step missing from `commands` is dropped with an error |
 | `verify.on_stop` | `off` \| `fast` \| `full` | `fast` | `off` — Stop doesn't verify; `fast` — `test_fast` instead of `test`; `full` — steps as they are |
 | `verify.timeout_sec` | integer 1–540 | `300` | Total budget of one check across all steps |
 | `git.protected_branches` | string[] | `["main", "master"]` | [Branches](guards.md#protected-branches) you can't push to. **Replaces** the built-in list rather than extending it; `[]` removes branch protection |
-| `protected_files` | string[] | `[]` | **Appended** to the [built-in list](guards.md#file-guard); `!pattern` removes protection |
+| `protected_files` | string[] | `[]` | **Appended** to the [built-in list](guards.md#file-guard); `!pattern` removes protection. Matching is case-insensitive (`.ENV` and `KEY.PEM` are protected too) |
 | `risky_paths` | string[] | `[]` | Hooks don't apply it. Read by [`forge:plan`](skills.md#forgeplan): work here is tier 3 and the `senior` role |
 | `tdd` | `off` \| `encouraged` \| `required` | `encouraged` | Used by [skills](skills.md): with `required`, `forge:plan` puts test tasks before implementation, and `forge:execute` passes the setting to the implementer. Hooks don't apply it |
 | `docs.remind` | boolean | `true` | `false` turns off the [reminder about agent files](agent-docs.md#agent-docs-reminder) at the end of a turn; [`forge docs`](agent-docs.md#the-forge-docs-command) always works |

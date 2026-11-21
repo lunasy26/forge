@@ -46,12 +46,12 @@
 |---|---|---|---|
 | `$schema` | string | — | `forge init` пишет `./profile.schema.json` |
 | `version` | `1` | — | Версия формата |
-| `commands` | объект: имя → строка или `{ "run": string, "ext": [".ext"] }` | `{}` | Команды оболочки. `format` и `lint` запускает [`PostToolBatch`](hooks.md#формат-и-линт-после-правок); `test_fast` подменяет `test` в быстрой проверке; любые имена можно звать из `verify.steps` |
+| `commands` | объект: имя → строка или `{ "run": string, "ext": [".ext"] }` | `{}` | Команды оболочки, написанные на синтаксисе POSIX `sh`: запускаются в `/bin/sh`, на Windows — в Git Bash (из Git for Windows; без него проверка, формат и линт не запускаются, а [`forge doctor`](cli.md#команды) об этом скажет). `format` и `lint` запускает [`PostToolBatch`](hooks.md#формат-и-линт-после-правок); `test_fast` подменяет `test` в быстрой проверке; любые имена можно звать из `verify.steps` |
 | `verify.steps` | string[] | `[]` | Имена из `commands` по порядку ([автопроверка](hooks.md#автопроверка-при-завершении-хода)). Пустой список — автопроверки нет. Шаг, которого нет в `commands`, отбрасывается с ошибкой |
 | `verify.on_stop` | `off` \| `fast` \| `full` | `fast` | `off` — Stop не проверяет; `fast` — `test_fast` вместо `test`; `full` — шаги как есть |
 | `verify.timeout_sec` | целое 1–540 | `300` | Общий бюджет одной проверки на все шаги |
 | `git.protected_branches` | string[] | `["main", "master"]` | [Ветки](guards.md#защищённые-ветки), куда нельзя пушить. **Заменяет** встроенный список, а не дополняет его; `[]` снимает защиту веток |
-| `protected_files` | string[] | `[]` | **Дописывается** к [встроенному списку](guards.md#охрана-файлов); `!шаблон` снимает защиту |
+| `protected_files` | string[] | `[]` | **Дописывается** к [встроенному списку](guards.md#охрана-файлов); `!шаблон` снимает защиту. Сопоставление без учёта регистра (`.ENV` и `KEY.PEM` тоже защищены) |
 | `risky_paths` | string[] | `[]` | Хуки его не применяют. Читает [`forge:plan`](skills.md#forgeplan): работа здесь — уровень 3 и роль `senior` |
 | `tdd` | `off` \| `encouraged` \| `required` | `encouraged` | Учитывают [скиллы](skills.md): при `required` `forge:plan` ставит тестовые задачи раньше реализации, `forge:execute` передаёт настройку исполнителю. Хуки не применяют |
 | `docs.remind` | boolean | `true` | `false` отключает [напоминание про агентские файлы](agent-docs.md#напоминание-про-агентские-файлы) в конце хода; [`forge docs`](agent-docs.md#команда-forge-docs) работает всегда |
