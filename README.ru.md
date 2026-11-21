@@ -5,7 +5,7 @@
 Плагин Claude Code, который даёт сессии дисциплину процесса хуками, а не уговорами в промпте: охрана git и секретов, формат и линт после правок, проверка перед завершением хода, профиль проекта и выбор модели и effort для ролей-субагентов.
 
 [![test](https://github.com/lunasy26/forge/actions/workflows/test.yml/badge.svg)](https://github.com/lunasy26/forge/actions/workflows/test.yml)
-[![version](https://img.shields.io/badge/version-0.4.0-blue)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-0.5.0-blue)](CHANGELOG.md)
 [![license: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![node ≥ 20](https://img.shields.io/badge/node-%E2%89%A5%2020-339933)](package.json)
 [![dependencies: zero](https://img.shields.io/badge/dependencies-zero-brightgreen)](package.json)

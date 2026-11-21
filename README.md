@@ -5,7 +5,7 @@
 A Claude Code plugin that gives a session process discipline through hooks, not prompt pleading: git and secret guards, format and lint after edits, verification before a turn ends, a per-project profile, and model and effort routing for role subagents.
 
 [![test](https://github.com/lunasy26/forge/actions/workflows/test.yml/badge.svg)](https://github.com/lunasy26/forge/actions/workflows/test.yml)
-[![version](https://img.shields.io/badge/version-0.4.0-blue)](CHANGELOG.md)
+[![version](https://img.shields.io/badge/version-0.5.0-blue)](CHANGELOG.md)
 [![license: MIT](https://img.shields.io/badge/license-MIT-green)](LICENSE)
 [![node ≥ 20](https://img.shields.io/badge/node-%E2%89%A5%2020-339933)](package.json)
 [![dependencies: zero](https://img.shields.io/badge/dependencies-zero-brightgreen)](package.json)

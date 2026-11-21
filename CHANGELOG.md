@@ -10,6 +10,8 @@
 
 ## [Unreleased]
 
+## [0.5.0] — 2026-11-21
+
 ### Added
 - `forge doctor` проверяет настройку моделей: читает окружение процесса и `env` из файлов настроек Claude Code и
   предупреждает (строки `!`, код выхода не меняется), если включён `CLAUDE_CODE_SUBAGENT_MODEL_FORCE`, при
@@ -193,7 +195,8 @@
 - Скиллы `/forge:init`, `/forge:mode`, `/forge:plan`, `/forge:execute`, `/forge:review`; CLI `forge` с командами
   `init`, `state`, `mode`, `route`, `verify`, `doctor`.
 
-[Unreleased]: https://github.com/lunasy26/forge/compare/v0.4.0...HEAD
+[Unreleased]: https://github.com/lunasy26/forge/compare/v0.5.0...HEAD
+[0.5.0]: https://github.com/lunasy26/forge/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/lunasy26/forge/compare/v0.3.0...v0.4.0
 [0.3.0]: https://github.com/lunasy26/forge/compare/v0.2.0...v0.3.0
 [0.2.0]: https://github.com/lunasy26/forge/compare/v0.1.0...v0.2.0
