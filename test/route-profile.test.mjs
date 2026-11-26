@@ -4,7 +4,7 @@ import { setLang } from '../lib/i18n.mjs';
 import { existsSync, readFileSync } from 'node:fs';
 import { join } from 'node:path';
 import { checkTable, compareStrength, effectiveTable, loadRouting, mergeTable, parseEntry, resolveRoute } from '../lib/route.mjs';
-import { DEFAULT_PROTECTED_FILES, DEFAULT_RELEASE_IGNORE, defaultProfile, loadProfile } from '../lib/profile.mjs';
+import { GIT_FLOWS, DEFAULT_PROTECTED_FILES, DEFAULT_RELEASE_IGNORE, defaultProfile, loadProfile } from '../lib/profile.mjs';
 import { matchList } from '../lib/glob.mjs';
 import { PLUGIN_ROOT, tempDir, write, writeProfile } from './helpers.mjs';
 
@@ -92,6 +92,36 @@ test('profile: merge, validation and protected_files extending the defaults', ()
   assert.equal(profile.mode, 'eco');
   assert.ok(profile.protected_files.includes('.env'));
   assert.ok(profile.protected_files.includes('config/secrets.json'));
+});
+
+test('profile.git.flow: default is null, merge and pr load, null is valid', () => {
+  assert.equal(defaultProfile().git.flow, null);
+  assert.deepEqual(GIT_FLOWS, ['merge', 'pr']);
+  const none = loadProfile(tempDir());
+  assert.equal(none.profile.git.flow, null);
+  for (const flow of ['pr', 'merge']) {
+    const dir = tempDir();
+    writeProfile(dir, { git: { flow } });
+    const { profile, errors } = loadProfile(dir);
+    assert.deepEqual(errors, []);
+    assert.equal(profile.git.flow, flow);
+  }
+  const dir = tempDir();
+  writeProfile(dir, { git: { flow: null } });
+  const { profile, errors } = loadProfile(dir);
+  assert.deepEqual(errors, []);
+  assert.equal(profile.git.flow, null);
+});
+
+test('profile.git.flow: an unknown value is an error and falls back to null', () => {
+  for (const flow of ['rebase', 1, true]) {
+    const dir = tempDir();
+    writeProfile(dir, { git: { flow, protected_branches: ['dev'] } });
+    const { profile, errors } = loadProfile(dir);
+    assert.match(errors.join(), /git\.flow: одно из merge, pr/, String(flow));
+    assert.equal(profile.git.flow, null);
+    assert.deepEqual(profile.git.protected_branches, ['dev']);
+  }
 });
 
 const RELEASE_DEFAULTS = {

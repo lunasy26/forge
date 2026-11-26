@@ -1,11 +1,13 @@
 import { test } from 'node:test';
+import { readFileSync } from 'node:fs';
+import { join } from 'node:path';
 import assert from 'node:assert/strict';
 import { setLang } from '../lib/i18n.mjs';
 import { buildCommand, runSteps, summarize } from '../lib/verify.mjs';
-import { detectProfile, detectRelease } from '../lib/detect.mjs';
+import { detectFlow, detectProfile, detectRelease } from '../lib/detect.mjs';
 import { defaultProfile } from '../lib/profile.mjs';
 import { trimOutput } from '../lib/util.mjs';
-import { git, gitRepo, tempDir, write } from './helpers.mjs';
+import { git, gitRepo, runCli, tempDir, write } from './helpers.mjs';
 
 setLang('ru'); // assertions below check the Russian texts
 
@@ -200,4 +202,36 @@ test('detect release: CalVer tags are not version tags', () => {
   const { release, notes } = detectRelease(dir);
   assert.equal(release.tag_prefix, 'v');
   assert.ok(!notes.some((n) => /теги версий/.test(n)));
+});
+
+test('detect: git.flow is merge without remotes, pr for a GitHub origin, absent otherwise', () => {
+  const none = gitRepo();
+  assert.equal(detectFlow(none), 'merge');
+  assert.equal(detectProfile(none).profile.git.flow, 'merge');
+  // not a git repository: no remotes to judge by, nothing is guessed
+  const plain = tempDir();
+  assert.equal(detectFlow(plain), undefined);
+  assert.equal('flow' in detectProfile(plain).profile.git, false);
+
+  for (const url of ['https://github.com/org/repo.git', 'git@github.com:org/repo.git', 'ssh://git@github.com/org/repo.git']) {
+    const dir = gitRepo();
+    git(dir, 'remote', 'add', 'origin', url);
+    assert.equal(detectFlow(dir), 'pr', url);
+    assert.equal(detectProfile(dir).profile.git.flow, 'pr', url);
+  }
+
+  for (const [name, url] of [['origin', 'https://gitlab.example.com/x/y.git'], ['origin', 'https://notgithub.example.com/x/y.git'], ['upstream', 'https://github.com/org/repo.git']]) {
+    const dir = gitRepo();
+    git(dir, 'remote', 'add', name, url);
+    assert.equal(detectFlow(dir), undefined, `${name} ${url}`);
+    assert.equal('flow' in detectProfile(dir).profile.git, false, `${name} ${url}`);
+  }
+});
+
+test('init --yes writes git.flow merge in a repository without remotes', () => {
+  const dir = gitRepo();
+  const r = runCli(['init', '--yes'], { cwd: dir });
+  assert.equal(r.code, 0, r.stderr);
+  const profile = JSON.parse(readFileSync(join(dir, '.forge', 'profile.json'), 'utf8'));
+  assert.equal(profile.git.flow, 'merge');
 });

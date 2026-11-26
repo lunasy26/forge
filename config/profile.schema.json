@@ -58,7 +58,8 @@
       "type": "object",
       "additionalProperties": false,
       "properties": {
-        "protected_branches": { "type": "array", "items": { "type": "string" }, "description": "Ветки, куда нельзя пушить. * — внутри сегмента, ** — через сегменты." }
+        "protected_branches": { "type": "array", "items": { "type": "string" }, "description": "Ветки, куда нельзя пушить. * — внутри сегмента, ** — через сегменты." },
+        "flow": { "enum": ["merge", "pr", null], "default": null, "description": "Как завершать ветку (forge finish): merge — локальное слияние в базовую ветку, pr — push ветки и pull request через gh; null — спросить." }
       }
     },
     "protected_files": {

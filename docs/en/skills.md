@@ -15,6 +15,7 @@ Skills are Claude Code [skills](https://code.claude.com/docs/en/skills) shipped 
 - [`/forge:docs`](#forgedocs)
 - [`/forge:review`](#forgereview)
 - [`/forge:release`](#forgerelease)
+- [`/forge:finish`](#forgefinish)
 - [Plan task format](#plan-task-format)
 - [Limitations](#limitations)
 
@@ -66,6 +67,13 @@ The base is `git merge-base` with a protected branch; reviewer through `forge ro
 - **Artifacts and state:** the changelog, version files, a commit and a tag; doesn't change the state.
 
 Releases a project with a `release` section: `forge release --check`, a read of `[Unreleased]` with proposed wording fixes, the level with you, `forge release <level> --yes`, then a push only after you agree; steps specific to the project (a GitHub release, publishing, deployment) only if documented and only with your explicit approval. See [Release flow in Claude](releases.md#release-flow-in-claude).
+
+## `/forge:finish`
+
+- **Invoked by:** the model (when you say the branch is done — merge it, open a pull request) or the user.
+- **Artifacts and state:** a merge, a push or a pull request — each only after you agree; `stage: finish`, then `forge state reset`.
+
+Wraps up a finished branch: `git fetch` (when there is a remote), then [`forge finish`](cli.md#forge-finish) — a clean tree, the full check over the files of the branch, a base that hasn't moved and a local base that isn't behind its upstream (if it is, the skill offers to update it and checks again), a changelog entry when there is a `release` section, and the exact commands for the flow in [`git.flow`](profile.md#profile-fields). What blocks gets fixed first (a failing check is fixed, not skipped); the warnings are put to you. If `git.flow` is not set, the skill asks how the project works and offers to save the answer. It runs the printed commands one group at a time, each after your OK: the merge, the push, deleting the branch; or the push of the branch and the pull request with a title and body drafted from the spec. A push refused by forge's guard (a protected base) is reported, not worked around. At the end the task's state is reset.
 
 ## Plan task format
 

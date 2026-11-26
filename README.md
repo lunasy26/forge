@@ -228,8 +228,8 @@ forge replaces Superpowers and conflicts with it. If `superpowers@…` is enable
 | [Session start context](docs/en/hooks.md#session-start-context) | Up to 600 characters: mode, checks, active task, warnings |
 | [Profile](docs/en/profile.md) | `.forge/profile.json` with a JSON Schema; stack detection for Node/TS, Python, Swift, Go and Rust |
 | [Model routing](docs/en/routing.md) | Model and effort per subagent role from the `eco`/`normal`/`max` table, checked by invariants; aliases can be [mapped to other models](docs/en/routing.md#using-other-models); `forge doctor` checks the model setup |
-| [Skills](docs/en/skills.md) | `/forge:init`, `/forge:mode`, `/forge:plan`, `/forge:execute`, `/forge:review`, `/forge:docs`, `/forge:release` |
-| [forge CLI](docs/en/cli.md) | `init`, `state`, `mode`, `route`, `verify`, `docs`, `release`, `doctor` |
+| [Skills](docs/en/skills.md) | `/forge:init`, `/forge:mode`, `/forge:plan`, `/forge:execute`, `/forge:review`, `/forge:docs`, `/forge:release`, `/forge:finish` |
+| [forge CLI](docs/en/cli.md) | `init`, `state`, `mode`, `route`, `verify`, `docs`, `release`, `finish`, `doctor` |
 
 <p align="right"><a href="#readme-top">↑ back to top</a></p>
 
@@ -279,7 +279,7 @@ flowchart TD
 **Project documents**
 
 - [CHANGELOG.md](CHANGELOG.md) — release history.
-- [docs/spec.md](docs/spec.md) — specification and design decisions. It started as the v0.1 draft; its versions section also lists what's next and not yet built: task tiers and `risky_paths` in hooks, `SubagentStart`, the `mechanic` and `architect` agents, the `debug` and `finish` skills.
+- [docs/spec.md](docs/spec.md) — specification and design decisions. It started as the v0.1 draft; its versions section also lists what's next and not yet built: task tiers and `risky_paths` in hooks, `SubagentStart`, the `mechanic` and `architect` agents, the `debug` skill.
 - [AGENTS.md](AGENTS.md) — rules for developing forge, for people and agents.
 
 <details>
