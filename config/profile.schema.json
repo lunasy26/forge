@@ -106,6 +106,15 @@
         "ignore": { "type": "array", "items": { "type": "string" }, "description": "Добавляются к встроенным (test/**, tests/**, **/__tests__/**, **/*.test.*, **/*.spec.*, docs/**, *.md, **/*.md, .forge/**). Правки в таких файлах записи в журнале не требуют. Синтаксис как в .gitignore; !pattern снимает." }
       }
     },
+    "work": {
+      "type": "object",
+      "description": "Где лежат спека и план фичи (forge:plan, forge:execute). По умолчанию рабочие файлы в .forge/work/ и в git не попадают.",
+      "additionalProperties": false,
+      "properties": {
+        "spec": { "type": "string", "minLength": 1, "pattern": "^(?=.*\\{slug\\})[^\\s']+$", "description": "Шаблон пути к спеке относительно корня проекта. {slug} обязателен (имя фичи), {date} — дата YYYY-MM-DD. Без пробелов и одинарных кавычек; путь без .. и не абсолютный, не совпадает с plan. По умолчанию .forge/work/{slug}/spec.md." },
+        "plan": { "type": "string", "minLength": 1, "pattern": "^(?=.*\\{slug\\})[^\\s']+$", "description": "Шаблон пути к плану относительно корня проекта. {slug} обязателен (имя фичи), {date} — дата YYYY-MM-DD. Без пробелов и одинарных кавычек; путь без .. и не абсолютный, не совпадает с spec. По умолчанию .forge/work/{slug}/plan.md." }
+      }
+    },
     "tdd": { "enum": ["off", "encouraged", "required"], "description": "Отношение к TDD. Хуки его не применяют; при required forge:plan ставит тестовые задачи перед реализацией, forge:execute передаёт значение ролям." },
     "mode": { "enum": ["eco", "normal", "max"], "description": "Режим по умолчанию; forge mode переопределяет его в состоянии." },
     "language": { "enum": ["auto", "en", "ru"], "default": "auto", "description": "Язык сообщений forge. auto — по языку, на котором пользователь пишет в сессии (откат: английский); en или ru — всегда этот язык. Переменная окружения FORGE_LANG важнее." },

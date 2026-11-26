@@ -11,7 +11,7 @@ forge — плагин Claude Code на Node ≥ 20 (ESM, `.mjs`, ни одно�
 | `.claude-plugin/` | `plugin.json` (версия плагина), `marketplace.json` (маркетплейс `forge-dev`) |
 | `hooks/hooks.json` | события, матчеры, таймауты; `hooks/*.mjs` — по скрипту на событие; обычные хуки идут через `runHook` из `lib/util.mjs`, охранные `pre-bash` и `pre-edit` — без него (см. «Fail-open») |
 | `lib/guards.mjs`, `lib/shell.mjs`, `lib/pwsh.mjs`, `lib/glob.mjs` | охрана Bash, PowerShell и файлов (`checkBash`, `checkPowerShell`, общий `checkWords`), разбиение команд Bash и PowerShell, glob-шаблоны |
-| `lib/profile.mjs` + `config/profile.schema.json` | профиль: значения по умолчанию, валидация, схема для редактора — держи их в согласии |
+| `lib/profile.mjs` + `config/profile.schema.json` | профиль: значения по умолчанию, валидация, схема для редактора — держи их в согласии; `work`/`workPaths` — пути спеки и плана (`forge work`) |
 | `lib/state.mjs`, `lib/edits.mjs` | `.forge/state.json` и журнал правок `.forge/edits.jsonl` с курсорами |
 | `lib/verify.mjs`, `lib/sh.mjs`, `lib/cli.mjs` | запуск команд проверки (оболочка — `/bin/sh` или Git Bash на Windows, `lib/sh.mjs`); команды CLI и `verifyAndRecord` (общая с Stop-хуком) |
 | `lib/route.mjs` + `config/routing.json` | роли, таблица режимов, инварианты `checkTable` |
@@ -91,5 +91,5 @@ claude --plugin-dir .                                     # живая пров�
 ## Где решения
 
 - `docs/spec.md` — цели, принципы, архитектура, план версий. Меняешь дизайнерское решение — обнови спеку.
-- Спека и план отдельной фичи — рабочие файлы в `.forge/work/<slug>/` (`/forge:plan`), в git не попадают. Когда фича влита, то, что нужно знать дальше, переносится в `docs/spec.md`, AGENTS.md или страницы `docs/en/` и `docs/ru/`; история — в git.
+- Спека и план отдельной фичи (`/forge:plan`) лежат по путям поля `work` профиля (`forge work <slug>`); в этом репозитории локальный профиль оставляет умолчание `.forge/work/<slug>/`, в git они не попадают. Когда фича влита, то, что нужно знать дальше, переносится в `docs/spec.md`, AGENTS.md или страницы `docs/en/` и `docs/ru/`; история — в git.
 - `README.md` (английский) и `README.ru.md` (русский) — короткие обзоры со ссылками на справку. Сама справка — в `docs/en/` и `docs/ru/`: одинаковый набор страниц (`hooks`, `guards`, `profile`, `routing`, `agent-docs`, `releases`, `skills`, `cli`, `state`, `development`) и одинаковая структура разделов, по фактическому поведению. Меняешь поведение — правь нужную страницу в обоих языках сразу: охрана — `guards.md`, хуки — `hooks.md`, CLI — `cli.md`, профиль — `profile.md`, маршрутизация — `routing.md`. При выпуске — значок версии в обоих README (его правит `forge release`, если бейдж указан в `release.version_files`).
