@@ -53,6 +53,7 @@ const INVALID = {
   'a space': 'my docs/{slug}.md',
   'a tab': 'docs/{slug}\t.md',
   'a trailing newline': 'docs/{slug}.md\n',
+  'a single quote': "docs/it's/{slug}.md",
   'no {slug}': 'docs/spec.md',
   'an unknown placeholder': 'docs/{x}/{slug}.md',
   'an unknown placeholder next to {slug}': 'docs/{slug}-{name}.md',

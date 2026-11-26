@@ -140,6 +140,29 @@ test('init preview: the write hint repeats --work', () => {
   assert.match(plain.stdout.trimEnd(), /Записать: forge init --yes$/);
 });
 
+test('init preview: the write hint keeps --force and --work', () => {
+  const dir = gitRepo();
+  const both = runCli(['init', '--work', 'docs', '--force'], { cwd: dir });
+  assert.match(both.stdout.trimEnd(), /Записать: forge init --yes --force --work docs$/);
+  const force = runCli(['init', '--force'], { cwd: dir });
+  assert.match(force.stdout.trimEnd(), /Записать: forge init --yes --force$/);
+});
+
+test('init: the "already exists" hint keeps --work', () => {
+  const dir = gitRepo();
+  writeProfile(dir, {});
+  const plain = runCli(['init', '--yes'], { cwd: dir });
+  assert.equal(plain.code, 1);
+  assert.match(plain.stderr, /уже существует\. Перезаписать: forge init --yes --force\n$/);
+  const docs = runCli(['init', '--yes', '--work', 'docs'], { cwd: dir });
+  assert.equal(docs.code, 1);
+  assert.match(docs.stderr, /уже существует\. Перезаписать: forge init --yes --force --work docs\n$/);
+  // following the hint really writes the requested work paths
+  const forced = runCli(['init', '--yes', '--force', '--work', 'docs'], { cwd: dir });
+  assert.equal(forced.code, 0, forced.stderr);
+  assert.equal(readProfile(dir).work.spec, 'docs/specs/{slug}.md');
+});
+
 test('init --work with a bad or missing value exits 2 and writes nothing', () => {
   const dir = gitRepo();
   for (const args of [['init', '--work', 'bogus'], ['init', '--work=bogus', '--yes'], ['init', '--work'], ['init', '--work', '--yes'], ['init', '--work=', '--yes']]) {
