@@ -121,6 +121,19 @@ test('session-start in English stays under 600 chars', () => {
   assert.ok(ctx.length <= 600, `length ${ctx.length}`);
 });
 
+test('session-start in English: where to pick up after compaction', () => {
+  const dir = projectWithCheck();
+  write(dir, '.forge/work/x/plan.md', '- [x] T1 Parse the plan\n- [ ] T2 Wire the hook\n  depends: T1\n');
+  write(dir, '.forge/state.json', { version: 1, tier: 2, stage: 'execute', task: { slug: 'x' }, artifacts: { plan: '.forge/work/x/plan.md' } });
+  const ctx = runHookScript('session-start', { cwd: dir, source: 'compact' }, { projectDir: dir, env: EN }).json.hookSpecificOutput.additionalContext;
+  assert.ok(ctx.split('\n').includes('Where to pick up: next task T2 "Wire the hook" (1/2 done); continue with forge:execute.'), ctx);
+  assert.doesNotMatch(ctx, CYRILLIC);
+
+  write(dir, '.forge/state.json', { version: 1, tier: 2, stage: 'plan', task: { slug: 'x' }, artifacts: {} });
+  const plan = runHookScript('session-start', { cwd: dir, source: 'resume' }, { projectDir: dir, env: EN }).json.hookSpecificOutput.additionalContext;
+  assert.match(plan, /\nWhere to pick up: show the plan to the user and, after their go-ahead, continue with forge:execute\./);
+});
+
 test('post-batch in English', () => {
   const dir = projectWithCheck({ lint: true });
   edit(dir, 'bad.ts', 'BAD code', EN);

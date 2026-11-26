@@ -12,11 +12,12 @@ forge — плагин Claude Code на Node ≥ 20 (ESM, `.mjs`, ни одно�
 | `hooks/hooks.json` | события, матчеры, таймауты; `hooks/*.mjs` — по скрипту на событие; обычные хуки идут через `runHook` из `lib/util.mjs`, охранные `pre-bash` и `pre-edit` — без него (см. «Fail-open») |
 | `lib/guards.mjs`, `lib/shell.mjs`, `lib/pwsh.mjs`, `lib/glob.mjs` | охрана Bash, PowerShell и файлов (`checkBash`, `checkPowerShell`, общий `checkWords`; проверка секретов перед `git commit` и вопрос про `git add .env`), разбиение команд Bash и PowerShell, glob-шаблоны |
 | `lib/secrets.mjs` | поиск секретов в коммите: шаблоны (AWS, GitHub, Anthropic, OpenAI, Slack, закрытый ключ, `.env`), `scanPatch`/`scanText`/`isSecretFile`, `pendingFindings` (то, что заберёт коммит: вызовы git, пределы по размеру и числу файлов, таймаут). Охрана зовёт его как `ctx.scanSecrets \|\| pendingFindings`; поле профиля `secrets` (`check`, `ignore`) |
-| `lib/profile.mjs` + `config/profile.schema.json` | профиль: значения по умолчанию, валидация, схема для редактора — держи их в согласии |
+| `lib/profile.mjs` + `config/profile.schema.json` | профиль: значения по умолчанию, валидация, схема для редактора — держи их в согласии; `work`/`workPaths` — пути спеки и плана (`forge work`) |
 | `lib/state.mjs`, `lib/edits.mjs` | `.forge/state.json` и журнал правок `.forge/edits.jsonl` с курсорами |
 | `lib/verify.mjs`, `lib/sh.mjs`, `lib/cli.mjs` | запуск команд проверки (оболочка — `/bin/sh` или Git Bash на Windows, `lib/sh.mjs`); команды CLI и `verifyAndRecord` (общая с Stop-хуком) |
 | `lib/route.mjs` + `config/routing.json` | роли, таблица режимов, инварианты `checkTable` |
 | `lib/detect.mjs` | автоопределение стека для `forge init` |
+| `lib/plan.mjs` | чтение плана `artifacts.plan` для `SessionStart` после компакции: `parsePlan`, `nextTask`, `planProgress` (fail-open, без исключений) |
 | `lib/docs.mjs` | агентские файлы: `checkDocs` и `fixDocs` (`forge docs`), `rootDocStatus` (строка начала сессии), `docsReminder` (напоминание в `Stop`, с памятью `state.docs.reminded`); `DEFAULT_DOCS_WATCH` и `DEFAULT_DOCS_MAX_LINES` живут в `lib/profile.mjs` |
 | `lib/changelog.mjs` | журнал в формате Keep a Changelog: `parseChangelog`, `checkChangelog` (коды замечаний), `suggestBump` (уровень по записям `[Unreleased]`), `releaseChangelog` (перенос в версию и ссылки сравнения, остальное байт в байт), `bumpVersion`, `compareVersions` (semver — re-export из `lib/semver.mjs`) |
 | `lib/semver.mjs` | единственная реализация SemVer: `parseSemver`, `compareSemver`/`compareVersions`, `bumpVersion` (из пре-релиза — как в npm); из модулей forge зависит только от `i18n.mjs` (тексты ошибок), её импортируют `changelog`, `release`, `git`, `detect` |
@@ -92,5 +93,5 @@ claude --plugin-dir .                                     # живая пров�
 ## Где решения
 
 - `docs/spec.md` — цели, принципы, архитектура, план версий. Меняешь дизайнерское решение — обнови спеку.
-- Спека и план отдельной фичи — рабочие файлы в `.forge/work/<slug>/` (`/forge:plan`), в git не попадают. Когда фича влита, то, что нужно знать дальше, переносится в `docs/spec.md`, AGENTS.md или страницы `docs/en/` и `docs/ru/`; история — в git.
+- Спека и план отдельной фичи (`/forge:plan`) лежат по путям поля `work` профиля (`forge work <slug>`); в этом репозитории локальный профиль оставляет умолчание `.forge/work/<slug>/`, в git они не попадают. Когда фича влита, то, что нужно знать дальше, переносится в `docs/spec.md`, AGENTS.md или страницы `docs/en/` и `docs/ru/`; история — в git.
 - `README.md` (английский) и `README.ru.md` (русский) — короткие обзоры со ссылками на справку. Сама справка — в `docs/en/` и `docs/ru/`: одинаковый набор страниц (`hooks`, `guards`, `profile`, `routing`, `agent-docs`, `releases`, `skills`, `cli`, `state`, `development`) и одинаковая структура разделов, по фактическому поведению. Меняешь поведение — правь нужную страницу в обоих языках сразу: охрана — `guards.md`, хуки — `hooks.md`, CLI — `cli.md`, профиль — `profile.md`, маршрутизация — `routing.md`. При выпуске — значок версии в обоих README (его правит `forge release`, если бейдж указан в `release.version_files`).

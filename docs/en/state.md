@@ -14,7 +14,7 @@ What forge keeps under `.forge/` in the project root. Which of these files [`for
 ├── profile.schema.json   copy of config/profile.schema.json
 ├── state.json            session state                           ┐
 ├── edits.jsonl           edit journal                            │ in .git/info/exclude
-├── work/<slug>/          spec.md, plan.md, review.md             │
+├── work/<slug>/          review.md, spec/plan (default)          │
 └── log/errors.log        internal hook errors                    ┘
 ```
 
@@ -26,7 +26,7 @@ What forge keeps under `.forge/` in the project root. Which of these files [`for
 
 `edits.jsonl`: one line `{"t": <ms>, "f": "<path from the root>"}` per edit. [Lint](hooks.md#format-and-lint), [verification](hooks.md#verification-on-stop) and the [Stop reminders](hooks.md#reminders-at-the-end-of-a-turn) keep their own byte cursors (`lint_offset`, `verify.edits_offset`, `docs.offset`; the agent docs and release reminders share the last one). When all active cursors have reached the end and the journal is at least 256 KB, it is truncated and the cursors are reset to 0. The `docs.offset` cursor may be absent (the first stop after an update; when both reminders are off `Stop` deletes `state.docs`) — then it doesn't hold back the reset; while it exists and lags behind, the journal is kept.
 
-There is one state per working directory. Run parallel sessions in separate worktrees. In a linked worktree without its own profile forge [reads the main checkout's profile](profile.md#profile-in-a-worktree), but `state.json`, the edit journal, `log/` and the `work/` plans are the worktree's own: its `.forge/` directory appears on the first write. To continue a main-checkout plan in a worktree, copy its `.forge/work/<slug>/` directory.
+There is one state per working directory. Run parallel sessions in separate worktrees. In a linked worktree without its own profile forge [reads the main checkout's profile](profile.md#profile-in-a-worktree), but `state.json`, the edit journal, `log/` and the `work/` plans are the worktree's own: its `.forge/` directory appears on the first write. By default (the profile's [`work`](profile.md#profile-fields) is unset) the spec and the plan live in `.forge/work/<slug>/`, so to continue a main-checkout plan in a worktree, copy that directory. A plan kept in the repository (`work` preset `docs`) is committed and arrives in the worktree with the branch; only `review.md` stays local.
 
 ## Limitations
 
