@@ -38,6 +38,6 @@ Whenever this skill says "dispatch <role>": run `forge route <role>`, then call 
    - Tasks with disjoint `files` and no dependency between them can run in parallel; say which groups in a line at the top of the plan.
    - If `.forge/profile.json` has `"tdd": "required"`, test tasks come before the tasks that implement the behaviour.
 5. **Record state** in one command:
-   `forge state set task.slug <slug> stage plan tier 2 artifacts.spec <spec> artifacts.plan <plan>` with the exact paths `forge work` printed.
+   `forge state set task.slug <slug> stage plan tier 2 artifacts.spec '<spec>' artifacts.plan '<plan>'` with the exact paths `forge work` printed.
    Use `tier 3` instead if the work touches the profile's `risky_paths` (migrations, auth, CI and the like).
 6. **Get a go-ahead.** Show the user the task titles with roles and parallel groups, and ask before executing. When they agree, use forge:execute.

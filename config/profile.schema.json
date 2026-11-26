@@ -111,8 +111,8 @@
       "description": "Где лежат спека и план фичи (forge:plan, forge:execute). По умолчанию рабочие файлы в .forge/work/ и в git не попадают.",
       "additionalProperties": false,
       "properties": {
-        "spec": { "type": "string", "minLength": 1, "description": "Шаблон пути к спеке относительно корня проекта. {slug} обязателен (имя фичи), {date} — дата YYYY-MM-DD. Путь без .. и не абсолютный, не совпадает с plan. По умолчанию .forge/work/{slug}/spec.md." },
-        "plan": { "type": "string", "minLength": 1, "description": "Шаблон пути к плану относительно корня проекта. {slug} обязателен (имя фичи), {date} — дата YYYY-MM-DD. Путь без .. и не абсолютный, не совпадает с spec. По умолчанию .forge/work/{slug}/plan.md." }
+        "spec": { "type": "string", "minLength": 1, "pattern": "^(?=.*\\{slug\\})\\S+$", "description": "Шаблон пути к спеке относительно корня проекта. {slug} обязателен (имя фичи), {date} — дата YYYY-MM-DD. Без пробелов; путь без .. и не абсолютный, не совпадает с plan. По умолчанию .forge/work/{slug}/spec.md." },
+        "plan": { "type": "string", "minLength": 1, "pattern": "^(?=.*\\{slug\\})\\S+$", "description": "Шаблон пути к плану относительно корня проекта. {slug} обязателен (имя фичи), {date} — дата YYYY-MM-DD. Без пробелов; путь без .. и не абсолютный, не совпадает с spec. По умолчанию .forge/work/{slug}/plan.md." }
       }
     },
     "tdd": { "enum": ["off", "encouraged", "required"], "description": "Отношение к TDD. Хуки его не применяют; при required forge:plan ставит тестовые задачи перед реализацией, forge:execute передаёт значение ролям." },
