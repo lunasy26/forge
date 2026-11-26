@@ -1049,10 +1049,11 @@ test('secrets: the scan runs where git runs (-C, cd), not repository is silent',
   assert.equal(scheck('git commit -m x', outer).decision, 'allow', 'not a repository');
   assert.equal(scheck('git -C sub commit -m x', outer).decision, 'ask');
   assert.equal(scheck('cd sub && git commit -m x', outer).decision, 'ask');
-  assert.equal(scheck(`git -C ${sub} commit -m x`, outer).decision, 'ask');
+  // quoted: unquoted backslashes of a Windows path are escapes in Bash (git would get D:a… too)
+  assert.equal(scheck(`git -C '${sub}' commit -m x`, outer).decision, 'ask');
   // and a clean repository passes from a dirty one
   const clean = gitRepo('feature/x');
-  assert.equal(scheck(`git -C ${clean} commit -m x`, sub).decision, 'allow');
+  assert.equal(scheck(`git -C '${clean}' commit -m x`, sub).decision, 'allow');
 });
 
 test('secrets: an unknown directory or repository asks', () => {
@@ -1277,7 +1278,7 @@ test('secrets: git add -f scans ignored files it force-adds', () => {
   }
   // an absolute path, and from another directory
   mkdirSync(join(repo, 'sub'));
-  assert.equal(scheck(`git add -f ${join(repo, 'secret.txt')} && git commit -m x`, repo).decision, 'ask');
+  assert.equal(scheck(`git add -f '${join(repo, 'secret.txt')}' && git commit -m x`, repo).decision, 'ask');
   assert.equal(scheck('cd sub && git add -f ../secret.txt && git commit -m x', repo).decision, 'ask');
   assert.equal(scheck('git -C sub add -f ../secret.txt && git commit -m x', repo).decision, 'ask');
   // without -f the ignored file stays out (git add would refuse it anyway); other ignored files are fine
