@@ -105,6 +105,21 @@ test('skipping git hooks is denied', () => {
   assert.equal(decide('git commit -m -n'), 'allow');
 });
 
+test('-u and -S take the rest of their cluster as a value, so an n there is not --no-verify', () => {
+  // -u<mode> and -S<keyid> take an optional value glued to the letter
+  assert.equal(decide('git commit -uno -m x'), 'allow');
+  assert.equal(decide('git commit -m x -uno'), 'allow');
+  assert.equal(decide('git commit -qunormal -m x'), 'allow');
+  assert.equal(decide('git commit -Snokey -m x'), 'allow');
+  assert.equal(decide('git commit -u -m x'), 'allow');
+  // the value is glued only: the next word is not taken, so a following -n still counts
+  assert.equal(decide('git commit -u -n -m x'), 'deny');
+  assert.equal(decide('git commit -S -nm x'), 'deny');
+  // an n before -u or -S is still --no-verify
+  assert.equal(decide('git commit -nuno -m x'), 'deny');
+  assert.equal(decide('git commit -qnS -m x'), 'deny');
+});
+
 test('destructive commands ask for confirmation', () => {
   assert.equal(decide('git reset --hard HEAD~1'), 'ask');
   assert.equal(decide('git reset --soft HEAD~1'), 'allow');
