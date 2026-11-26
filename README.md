@@ -11,7 +11,7 @@
 
 <p align="center">
   <a href="https://github.com/lunasy26/forge/actions/workflows/test.yml"><img alt="test" src="https://github.com/lunasy26/forge/actions/workflows/test.yml/badge.svg"></a>
-  <a href="CHANGELOG.md"><img alt="version" src="https://img.shields.io/badge/version-0.6.0-blue"></a>
+  <a href="CHANGELOG.md"><img alt="version" src="https://img.shields.io/badge/version-0.7.0-blue"></a>
   <a href="LICENSE"><img alt="license: MIT" src="https://img.shields.io/badge/license-MIT-green"></a>
   <a href="package.json"><img alt="node ≥ 20" src="https://img.shields.io/badge/node-%E2%89%A5%2020-339933"></a>
   <a href="package.json"><img alt="dependencies: zero" src="https://img.shields.io/badge/dependencies-zero-brightgreen"></a>

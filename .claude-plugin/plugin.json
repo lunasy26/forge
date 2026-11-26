@@ -1,6 +1,6 @@
 {
   "name": "forge",
-  "version": "0.6.0",
+  "version": "0.7.0",
   "description": "Process discipline for Claude Code with hooks instead of pleading: git and secret guards, auto-verification before a turn ends, a per-project profile, and model routing for role subagents.",
   "author": { "name": "lunasy26" },
   "homepage": "https://github.com/lunasy26/forge",

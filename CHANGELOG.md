@@ -10,6 +10,8 @@
 
 ## [Unreleased]
 
+## [0.7.0] — 2026-11-26
+
 ### Added
 - Проверка секретов перед `git commit` (Bash и PowerShell): охрана смотрит, что коммит заберёт, — проиндексированный дифф, а при `-a`, пути или `git add` в той же команде ещё и рабочее дерево и новые файлы, — и спрашивает подтверждения (`ask`), если находит ключ AWS, токен GitHub, ключ Anthropic или OpenAI, токен Slack, заголовок закрытого ключа или файл `.env` (кроме шаблонов с окончанием `.example`, `.sample`, `.template`, `.dist`). В вопросе — до пяти находок как `файл:строка — вид`, само значение не показывается. `git add .env` спрашивает сразу; файлы, добавленные через `git add -f`, проверяются тоже. Если проверить нельзя (каталог известен только во время выполнения, git не ответил, изменения слишком велики), тоже `ask`. Выключается и настраивается полем профиля `secrets` (`check`, `ignore` — шаблоны от корня проекта). См. [«Секреты в коммите»](docs/ru/guards.md#секреты-в-коммите).
 - Поле профиля `work` — где `/forge:plan` пишет спеку и план. Это шаблоны путей от корня проекта: `spec` и
@@ -301,7 +303,8 @@
 - Скиллы `/forge:init`, `/forge:mode`, `/forge:plan`, `/forge:execute`, `/forge:review`; CLI `forge` с командами
   `init`, `state`, `mode`, `route`, `verify`, `doctor`.
 
-[Unreleased]: https://github.com/lunasy26/forge/compare/v0.6.0...HEAD
+[Unreleased]: https://github.com/lunasy26/forge/compare/v0.7.0...HEAD
+[0.7.0]: https://github.com/lunasy26/forge/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/lunasy26/forge/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/lunasy26/forge/compare/v0.4.0...v0.5.0
 [0.4.0]: https://github.com/lunasy26/forge/compare/v0.3.0...v0.4.0
