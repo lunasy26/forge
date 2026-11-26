@@ -16,6 +16,7 @@ forge — плагин Claude Code на Node ≥ 20 (ESM, `.mjs`, ни одно�
 | `lib/verify.mjs`, `lib/sh.mjs`, `lib/cli.mjs` | запуск команд проверки (оболочка — `/bin/sh` или Git Bash на Windows, `lib/sh.mjs`); команды CLI и `verifyAndRecord` (общая с Stop-хуком) |
 | `lib/route.mjs` + `config/routing.json` | роли, таблица режимов, инварианты `checkTable` |
 | `lib/detect.mjs` | автоопределение стека для `forge init` |
+| `lib/plan.mjs` | чтение плана `artifacts.plan` для `SessionStart` после компакции: `parsePlan`, `nextTask`, `planProgress` (fail-open, без исключений) |
 | `lib/docs.mjs` | агентские файлы: `checkDocs` и `fixDocs` (`forge docs`), `rootDocStatus` (строка начала сессии), `docsReminder` (напоминание в `Stop`, с памятью `state.docs.reminded`); `DEFAULT_DOCS_WATCH` и `DEFAULT_DOCS_MAX_LINES` живут в `lib/profile.mjs` |
 | `lib/changelog.mjs` | журнал в формате Keep a Changelog: `parseChangelog`, `checkChangelog` (коды замечаний), `suggestBump` (уровень по записям `[Unreleased]`), `releaseChangelog` (перенос в версию и ссылки сравнения, остальное байт в байт), `bumpVersion`, `compareVersions` (semver — re-export из `lib/semver.mjs`) |
 | `lib/semver.mjs` | единственная реализация SemVer: `parseSemver`, `compareSemver`/`compareVersions`, `bumpVersion` (из пре-релиза — как в npm); из модулей forge зависит только от `i18n.mjs` (тексты ошибок), её импортируют `changelog`, `release`, `git`, `detect` |

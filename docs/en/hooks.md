@@ -21,7 +21,7 @@ Each hook is `node hooks/<name>.mjs`: it reads the event JSON on stdin and write
 
 | Event | Matcher | Script | What it does | Timeout, s |
 |---|---|---|---|---|
-| `SessionStart` | `startup\|resume\|clear\|compact` | `session-start.mjs` | [Short context](#session-start-context): mode, tier, checks, active task, warnings, a line about the root agent files | 10 |
+| `SessionStart` | `startup\|resume\|clear\|compact` | `session-start.mjs` | [Short context](#session-start-context): mode, tier, checks, active task, after `compact`/`resume` the next plan task and skill, warnings, a line about the root agent files | 10 |
 | `PreToolUse` | `Bash\|PowerShell` | `pre-bash.mjs` | [Bash guard](guards.md#bash-guard) or, for the PowerShell tool, [PowerShell guard](guards.md#powershell-guard): git and recursive delete (`rm -r`, `Remove-Item -Recurse`): `deny` or `ask` with a reason | 10 |
 | `PreToolUse` | `Edit\|Write\|MultiEdit\|NotebookEdit` | `pre-edit.mjs` | [File guard](guards.md#file-guard): `deny` for `protected_files` | 10 |
 | `PostToolUse` | `Edit\|Write\|MultiEdit\|NotebookEdit` | `post-edit.mjs` | Appends the path to the [edit journal](state.md#edit-journal) `.forge/edits.jsonl`; does nothing without a profile | 10 |
@@ -43,10 +43,23 @@ On `startup`, `resume`, `clear`, `compact`:
 - no profile and not a git repository — nothing, not even the Superpowers warning (the hook exits right away);
 - a git repository without a profile — one line suggesting `/forge:init`;
 - with a profile — a line with the mode (from the state, otherwise from the profile), tier, verification steps, `on_stop` and a reminder about `forge route <role>`; in a linked worktree using the main checkout's profile, the line `Profile from the main checkout <path>…` ([Profile in a worktree](profile.md#profile-in-a-worktree)); when needed, lines about the active task (slug, stage, path to the plan), a failed last check, the number of [profile errors](profile.md#broken-profile) and ignored [`routing` overrides](routing.md#routing-overrides);
+- on `compact` and `resume` with an active task — right after the task line, a line [where to pick up](#where-to-pick-up-after-compaction);
 - with a profile and no root `AGENTS.md` — the line `forge: no AGENTS.md: /forge:docs can create one.`; if there is a `CLAUDE.md` that doesn't import `AGENTS.md` (no `@AGENTS.md` line outside a code block) — `forge: CLAUDE.md does not import AGENTS.md: forge docs.`. Only these two files are checked, without walking directories; a `CLAUDE.md` that is a symbolic link to `AGENTS.md` counts as an import; with a correct pair there is no line;
 - the [Superpowers warning](../../README.md#superpowers-conflict), if it is enabled — in a git repository, with or without a profile.
 
 The whole text is cut to 600 characters.
+
+### Where to pick up after compaction
+
+After compaction the model keeps only a summary of the conversation and may lose track of which plan task it was on. So on `compact` and `resume` (not on `startup` or `clear`), when the [state](state.md#state-file) has `task.slug`, forge adds one line, for example:
+
+```text
+Where to pick up: next task T3 "Write the tests" (1/3 done); continue with forge:execute.
+```
+
+- **Next task** — from the plan at `artifacts.plan` (only from there, a path relative to the project root): the first `- [ ] T<n> <title>` line whose `depends:` tasks are all checked `[x]`, otherwise the first unchecked one; titles longer than 60 characters are shortened. If every task is checked — `all 3 plan tasks are checked`. Code blocks in the plan are skipped.
+- **Skill for the stage** (`stage`): `spec` — `forge:plan`; `plan` — show the plan to the user and, after their go-ahead, `forge:execute`; `execute` — `forge:execute`; `review` — `forge:review`; `finish` and an empty stage — no hint.
+- The plan is read once, fail-open: no `artifacts.plan`, no file, a directory, a file over 256 KB, a read error or a plan without tasks — the task part is dropped silently, the stage hint stays; with no hint either, there is no line.
 
 ## Format and lint
 

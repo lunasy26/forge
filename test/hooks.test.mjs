@@ -47,6 +47,64 @@ test('session-start: profile summary under 600 chars, Superpowers warning', () =
   assert.ok(ctx.length <= 600, `length ${ctx.length}`);
 });
 
+const PLAN_MD = '- [x] T1 Разобрать план\n  depends: -\n\n- [ ] T2 Подключить хук\n  depends: T3\n\n- [ ] T3 Написать тесты\n  depends: T1\n';
+const withTask = (dir, state) =>
+  write(dir, '.forge/state.json', { version: 1, tier: 2, task: { slug: 'resume' }, artifacts: { plan: '.forge/work/resume/plan.md' }, ...state });
+const sessionCtx = (dir, source, opts = {}) =>
+  runHookScript('session-start', { cwd: dir, source }, { projectDir: dir, ...opts }).json.hookSpecificOutput.additionalContext;
+
+test('session-start: after compact or resume — next ready task from the plan and the skill for the stage', () => {
+  const dir = projectWithCheck();
+  write(dir, '.forge/work/resume/plan.md', PLAN_MD);
+  withTask(dir, { stage: 'execute' });
+  const line = 'Где продолжить: следующая задача T3 «Написать тесты» (выполнено 1/3); продолжай скиллом forge:execute.';
+  for (const source of ['compact', 'resume']) {
+    const ctx = sessionCtx(dir, source);
+    assert.ok(ctx.split('\n').includes(line), ctx);
+    assert.match(ctx, /Активная задача: resume, стадия execute, план \.forge\/work\/resume\/plan\.md\.\n/);
+  }
+  for (const source of ['startup', 'clear']) {
+    const ctx = sessionCtx(dir, source);
+    assert.match(ctx, /Активная задача: resume/);
+    assert.doesNotMatch(ctx, /Где продолжить/);
+  }
+
+  withTask(dir, { stage: 'plan' });
+  assert.match(sessionCtx(dir, 'compact'), /\(выполнено 1\/3\); покажи план пользователю и после согласия продолжай скиллом forge:execute\./);
+
+  write(dir, '.forge/work/resume/plan.md', '- [x] T1 a\n- [x] T2 b\n');
+  withTask(dir, { stage: 'review' });
+  assert.match(sessionCtx(dir, 'compact'), /: все задачи плана отмечены \(2\); продолжай скиллом forge:review\./);
+});
+
+test('session-start: without a readable plan only the stage hint, without a hint no line', () => {
+  const dir = projectWithCheck();
+  withTask(dir, { stage: 'spec', artifacts: {} });
+  assert.match(sessionCtx(dir, 'compact'), /\nГде продолжить: продолжай скиллом forge:plan\./);
+
+  withTask(dir, { stage: 'execute' }); // the plan file does not exist
+  assert.match(sessionCtx(dir, 'compact'), /\nГде продолжить: продолжай скиллом forge:execute\./);
+
+  withTask(dir, { stage: 'finish' });
+  assert.doesNotMatch(sessionCtx(dir, 'compact'), /Где продолжить/);
+
+  write(dir, '.forge/state.json', { version: 1, stage: 'execute', artifacts: { plan: '.forge/work/resume/plan.md' } });
+  assert.doesNotMatch(sessionCtx(dir, 'compact'), /Где продолжить/); // no active task
+});
+
+test('session-start: the resume line fits in 600 chars with everything else switched on', () => {
+  const dir = gitRepo('feature/x');
+  writeProfile(dir, { verify: { steps: ['test'] }, routing: { normal: { senior: 'sonnet/medium' } } });
+  const slug = 'a-rather-long-feature-slug-for-the-budget';
+  write(dir, `.forge/work/${slug}/plan.md`, `- [ ] T12 ${'Очень длинный заголовок задачи '.repeat(8)}\n`);
+  write(dir, '.forge/state.json', { version: 1, tier: 2, stage: 'execute', task: { slug }, artifacts: { plan: `.forge/work/${slug}/plan.md` }, verify: { ok: false, summary: 'test: 3 failing' } });
+  const configDir = emptyConfigDir();
+  write(configDir, 'settings.json', { enabledPlugins: { 'superpowers@claude-plugins-official': true } });
+  const ctx = sessionCtx(dir, 'compact', { configDir });
+  assert.ok(ctx.length <= 600, `length ${ctx.length}`);
+  assert.match(ctx, /следующая задача T12 «Очень длинный[^»]*…» \(выполнено 0\/1\); продолжай скиллом forge:execute\./);
+});
+
 test('session-start: mentions ignored routing overrides, silent for a valid profile', () => {
   const bad = gitRepo('feature/x');
   writeProfile(bad, { routing: { normal: { senior: 'sonnet/medium' } } });
