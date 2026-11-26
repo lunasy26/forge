@@ -1,6 +1,6 @@
 ---
 name: plan
-description: Use before writing code for a feature or any change that spans several files or modules, or when the user asks for a plan. Produces a short spec and a task plan in .forge/work/<slug>/ that forge:execute can run. Skip it for one-file fixes, typos and questions.
+description: Use before writing code for a feature or any change that spans several files or modules, or when the user asks for a plan. Produces a short spec and a task plan at the paths from the profile's `work` (by default .forge/work/<slug>/) that forge:execute can run. Skip it for one-file fixes, typos and questions.
 ---
 
 # forge:plan
@@ -15,8 +15,8 @@ Whenever this skill says "dispatch <role>": run `forge route <role>`, then call 
 
 1. **Gather context cheaply.** Dispatch `scout` with focused questions — one scout per independent area, in parallel. Don't read many files yourself; you need conclusions, not file contents.
 2. **Clarify.** Ask the user only questions whose answers change the design — at most three, in one message. If nothing blocks you, state your assumptions instead of asking.
-3. **Spec.** Pick a kebab-case slug and write `.forge/work/<slug>/spec.md`, at most ~40 lines: goal, in scope / out of scope, decisions with one-line reasons, acceptance criteria.
-4. **Plan.** Write `.forge/work/<slug>/plan.md` with tasks in exactly this format:
+3. **Spec.** Pick a kebab-case slug, run `forge work <slug>` and write the spec to the printed `spec` path, at most ~40 lines: goal, in scope / out of scope, decisions with one-line reasons, acceptance criteria. When that path is inside the repository, the spec and plan are committed with the change as a record of decisions — write them for a reader who wasn't in the session, and never delete them afterwards.
+4. **Plan.** Write the plan to the printed `plan` path with tasks in exactly this format:
 
    ```markdown
    - [ ] T1 <imperative title>
@@ -38,6 +38,6 @@ Whenever this skill says "dispatch <role>": run `forge route <role>`, then call 
    - Tasks with disjoint `files` and no dependency between them can run in parallel; say which groups in a line at the top of the plan.
    - If `.forge/profile.json` has `"tdd": "required"`, test tasks come before the tasks that implement the behaviour.
 5. **Record state** in one command:
-   `forge state set task.slug <slug> stage plan tier 2 artifacts.spec .forge/work/<slug>/spec.md artifacts.plan .forge/work/<slug>/plan.md`
+   `forge state set task.slug <slug> stage plan tier 2 artifacts.spec <spec> artifacts.plan <plan>` with the exact paths `forge work` printed.
    Use `tier 3` instead if the work touches the profile's `risky_paths` (migrations, auth, CI and the like).
 6. **Get a go-ahead.** Show the user the task titles with roles and parallel groups, and ask before executing. When they agree, use forge:execute.
