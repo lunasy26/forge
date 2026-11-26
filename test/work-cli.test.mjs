@@ -113,6 +113,33 @@ test('init --work docs previews docs templates', () => {
   assert.match(r.stdout, /"spec": "docs\/specs\/\{slug\}\.md"/);
 });
 
+test('init --work local: no "found docs/plans/" note in preview or with --yes', () => {
+  const dir = gitRepo();
+  mkdirSync(join(dir, 'docs', 'plans'), { recursive: true });
+  const preview = runCli(['init', '--work', 'local'], { cwd: dir });
+  assert.equal(preview.code, 0, preview.stderr);
+  assert.doesNotMatch(preview.stdout, /найден docs/);
+  assert.match(preview.stdout, /"spec": "\.forge\/work\/\{slug\}\/spec\.md"/);
+  const written = runCli(['init', '--work=local', '--yes'], { cwd: dir });
+  assert.equal(written.code, 0, written.stderr);
+  assert.doesNotMatch(written.stdout, /найден docs/);
+  assert.doesNotMatch(written.stdout, /forge init --work local/);
+  // without the flag the note is still there, with --yes too
+  const other = gitRepo();
+  mkdirSync(join(other, 'docs', 'plans'), { recursive: true });
+  assert.match(runCli(['init', '--yes'], { cwd: other }).stdout, /найден docs\/plans\/ — спеки и планы/);
+});
+
+test('init preview: the write hint repeats --work', () => {
+  const dir = gitRepo();
+  const docs = runCli(['init', '--work', 'docs'], { cwd: dir });
+  assert.match(docs.stdout.trimEnd(), /Записать: forge init --yes --work docs$/);
+  const eq = runCli(['init', '--work=local'], { cwd: dir });
+  assert.match(eq.stdout.trimEnd(), /Записать: forge init --yes --work local$/);
+  const plain = runCli(['init'], { cwd: dir });
+  assert.match(plain.stdout.trimEnd(), /Записать: forge init --yes$/);
+});
+
 test('init --work with a bad or missing value exits 2 and writes nothing', () => {
   const dir = gitRepo();
   for (const args of [['init', '--work', 'bogus'], ['init', '--work=bogus', '--yes'], ['init', '--work'], ['init', '--work', '--yes'], ['init', '--work=', '--yes']]) {
