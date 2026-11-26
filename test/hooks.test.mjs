@@ -1,9 +1,10 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
-import { existsSync, readFileSync, writeFileSync } from 'node:fs';
+import { existsSync, readFileSync, statSync, writeFileSync } from 'node:fs';
+import { tmpdir } from 'node:os';
 import { join } from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { configureRepo, emptyConfigDir, git, gitRepo, PLUGIN_ROOT, runHookScript, tempDir, write, writeProfile } from './helpers.mjs';
+import { configureRepo, emptyConfigDir, git, gitRepo, OUTER_TMPDIR, PLUGIN_ROOT, runHookScript, tempDir, write, writeProfile } from './helpers.mjs';
 
 /** A project whose "test" step passes or fails depending on the content of status.txt. */
 function projectWithCheck({ on_stop = 'full', lint = false } = {}) {
@@ -260,6 +261,21 @@ test('guard hooks fail closed when a module fails to load or the project root ca
     const edit = runHookScript('pre-edit', { cwd: repo, tool_name: 'Edit', tool_input: { file_path: join(repo, 'a.txt') } }, { projectDir: repo, env });
     assert.equal(edit.json?.hookSpecificOutput.permissionDecision, 'ask', `pre-edit, broken ${mod}`);
   }
+});
+
+test('tests keep hook errors out of the shared temp log: a project without .forge logs to the isolated temp dir', () => {
+  assert.notEqual(tmpdir(), OUTER_TMPDIR);
+  const realLog = join(OUTER_TMPDIR, 'forge-errors.log');
+  const before = existsSync(realLog) ? statSync(realLog).size : 0;
+  const repo = gitRepo('main'); // no .forge/: errors go to <tmpdir>/forge-errors.log
+  const env = { NODE_OPTIONS: `--import=${pathToFileURL(join(PLUGIN_ROOT, 'test', 'throwing-guards.mjs')).href}`, FORGE_TEST_BROKEN_MODULE: 'paths' };
+  const r = runHookScript('pre-bash', { cwd: repo, tool_name: 'Bash', tool_input: { command: 'ls' } }, { projectDir: repo, env });
+  assert.equal(r.json?.hookSpecificOutput.permissionDecision, 'ask');
+  const marker = pathToFileURL(join(PLUGIN_ROOT, 'hooks', 'pre-bash.mjs')).href;
+  assert.match(readFileSync(join(tmpdir(), 'forge-errors.log'), 'utf8'), /module failed to load/);
+  // other processes may append to the real log meanwhile: only this hook's line must be absent
+  const added = existsSync(realLog) ? readFileSync(realLog).subarray(before).toString('utf8') : '';
+  assert.ok(!added.includes(marker), 'the hook wrote to the shared temp log');
 });
 
 test('pre-bash: pathological nesting before a protected push asks, never allows', () => {

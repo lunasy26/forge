@@ -37,6 +37,8 @@ node test/run.mjs --test-name-pattern "force" test/guards.test.mjs  # tests by n
 
 `runHookScript(name, input, { projectDir })` from `test/helpers.mjs` runs `node hooks/<name>.mjs`, feeds the event JSON on stdin, sets `CLAUDE_PROJECT_DIR`, `CLAUDE_PLUGIN_ROOT` and an isolated `CLAUDE_CONFIG_DIR` (the developer's settings are not read) and returns the exit code, stdout and the parsed JSON. Fixture projects: `gitRepo(branch)` (a temporary repository without commit signing and git hooks), `writeProfile`, `write`; the CLI: `runCli(args, { cwd })`.
 
+Each test process gets its own temporary directory when it loads `test/helpers.mjs`: `TMPDIR`, `TEMP` and `TMP` point to a `forge-tests-*` directory inside the system one, removed on exit. Hooks and the CLI inherit the environment, so a hook that fails in a project without `.forge/` writes `forge-errors.log` there, not to the developer's shared log that `forge doctor` reports. The system directory is `OUTER_TMPDIR` from `helpers.mjs`.
+
 ## Adding a guard rule
 
 1. Logic goes to `lib/guards.mjs` (`checkPush`, `checkCommit`, `checkGit`, `checkRm`, or a new branch by command name in `checkBash`); the verdict is `deny(…)` or `ask(…)` with a reason starting with `forge:`, written in both languages (see [Adding a message](#adding-a-message)). Command parsing lives in `lib/shell.mjs`.

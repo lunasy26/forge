@@ -1,10 +1,27 @@
 import { spawnSync } from 'node:child_process';
-import { mkdirSync, mkdtempSync, realpathSync, symlinkSync, writeFileSync } from 'node:fs';
+import { mkdirSync, mkdtempSync, realpathSync, rmSync, symlinkSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { dirname, join, resolve } from 'node:path';
 import { fileURLToPath } from 'node:url';
 
 export const PLUGIN_ROOT = resolve(dirname(fileURLToPath(import.meta.url)), '..');
+
+/** The system temp dir as it was before the isolation below: where a real forge keeps its shared error log. */
+export const OUTER_TMPDIR = tmpdir();
+
+// Every test process gets its own temp dir, removed on exit. os.tmpdir() reads TMPDIR on POSIX and
+// TEMP/TMP on Windows on each call, and hooks and the CLI inherit process.env, so fixtures, the test
+// process and its children agree on one temp dir, and a hook that logs outside a forge project writes
+// forge-errors.log here instead of the developer's shared one (which `forge doctor` reports).
+const isolatedTmp = realpathSync.native(mkdtempSync(join(OUTER_TMPDIR, 'forge-tests-')));
+for (const name of ['TMPDIR', 'TEMP', 'TMP']) process.env[name] = isolatedTmp;
+process.on('exit', () => {
+  try {
+    rmSync(isolatedTmp, { recursive: true, force: true, maxRetries: 3 });
+  } catch {
+    // a locked file on Windows must not fail the run
+  }
+});
 
 export function tempDir(prefix = 'forge-test-') {
   // .native resolves Windows 8.3 short names (RUNNER~1) to the long form that git and the CLI print

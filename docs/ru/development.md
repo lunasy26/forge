@@ -37,6 +37,8 @@ node test/run.mjs --test-name-pattern "force" test/guards.test.mjs  # тесты
 
 `runHookScript(name, input, { projectDir })` из `test/helpers.mjs` запускает `node hooks/<name>.mjs`, подаёт событие JSON на stdin, задаёт `CLAUDE_PROJECT_DIR`, `CLAUDE_PLUGIN_ROOT` и изолированный `CLAUDE_CONFIG_DIR` (настройки разработчика не читаются) и возвращает код выхода, stdout и разобранный JSON. Проекты-фикстуры — `gitRepo(branch)` (временный репозиторий без подписи коммитов и git-хуков), `writeProfile`, `write`; CLI — `runCli(args, { cwd })`.
 
+Каждый тестовый процесс при загрузке `test/helpers.mjs` получает свой временный каталог: `TMPDIR`, `TEMP` и `TMP` указывают на `forge-tests-*` внутри системного, после выхода он удаляется. Хуки и CLI наследуют окружение, поэтому хук, упавший в проекте без `.forge/`, пишет `forge-errors.log` туда, а не в общий лог разработчика, который показывает `forge doctor`. Системный каталог — `OUTER_TMPDIR` из `helpers.mjs`.
+
 ## Новое правило охраны
 
 1. Логика — в `lib/guards.mjs` (`checkPush`, `checkCommit`, `checkGit`, `checkRm` или новая ветка по имени команды в `checkBash`); вердикт — `deny(…)` или `ask(…)` с причиной, начинающейся с `forge:`, на обоих языках (см. [«Новое сообщение»](#новое-сообщение)). Разбор команды — `lib/shell.mjs`.
