@@ -20,6 +20,7 @@ forge: git push --force is forbidden. For your own branch use --force-with-lease
   - [Abbreviated long options](#abbreviated-long-options)
   - [Recursive rm](#recursive-rm)
   - [Protected branches](#protected-branches)
+  - [Secrets in a commit](#secrets-in-a-commit)
 - [PowerShell guard](#powershell-guard)
   - [How a PowerShell command is read](#how-a-powershell-command-is-read)
   - [PowerShell rules](#powershell-rules)
@@ -68,6 +69,8 @@ The verdicts of all commands on the line are combined: `deny` beats `ask`, `ask`
 | `git push` without a destination (no refspec, `HEAD`, `@`) from a directory known only at run time | ask | The branch it pushes cannot be told; see `cd` in [How a command is read](#how-a-command-is-read). With an explicit branch the push is judged as usual |
 | `git reset --hard` | ask | |
 | `rm -r`, `-R`, `--recursive` outside the project or on an unpredictable path | ask | See [Recursive rm](#recursive-rm); [PowerShell](#powershell-rules) has the same rule for `Remove-Item -Recurse` |
+| `git commit` with what looks like a secret in the index (or the working tree) | ask | See [Secrets in a commit](#secrets-in-a-commit); turned off by [`secrets.check`](profile.md#profile-fields) |
+| `git add .env` (an explicit path or an `.env*` glob) | ask | Also [secrets](#secrets-in-a-commit); names ending in `.example`, `.sample`, `.template`, `.dist` pass (`.env.example`, `.env.local.example`, `.env.dist`) |
 | `git push --dry-run`, `-n` | allowed | A dry run is not checked |
 
 Order of the `git push` checks: `--mirror`, protected branch, force, `--no-verify`, `--all`; the first matching rule wins. git's global options before the subcommand (`-C`, `-c`, `--git-dir`, `--work-tree`, `--namespace`, `--config-env`) are skipped.
@@ -99,9 +102,38 @@ On Windows paths are read as Windows paths, and the comparison ignores letter ca
 
 Without a profile: `main` and `master`. The profile field [`git.protected_branches`](profile.md#profile-fields) **replaces** this list; `[]` removes branch protection. Patterns are anchored at both ends of the name: `*` doesn't cross `/`, `**` does. `release/*` protects `release/1.2` but not `release/1.2/hotfix`.
 
+### Secrets in a commit
+
+Before `git commit` the guard checks what the commit would take and asks for confirmation (`ask`, not `deny`: an example in documentation or a test key may be intentional) when it finds something. It looks for:
+
+- an AWS access key (`AKIA…`, `ASIA…`);
+- a GitHub token (`ghp_…`, `gho_…`, `ghu_…`, `ghs_…`, `ghr_…`, `github_pat_…`);
+- an Anthropic API key (`sk-ant-…`) and an OpenAI one (`sk-…`, `sk-proj-…`);
+- a Slack token (`xoxb-…` and the other `xox?-…`);
+- a private key header (`-----BEGIN … PRIVATE KEY-----`);
+- `.env` and `.env.*` files at any depth, except templates: names ending in `.example`, `.sample`, `.template` or `.dist` (`.env.example`, `.env.local.example`, `.env.dist`) are not secrets (the finding is the file name itself).
+
+Placeholder values (`EXAMPLE`, `xxxxxx`, `your`, `placeholder`, `dummy`, `fake`) do not match. Only the listed patterns are searched, with no entropy search. Removing `.env` from the index is not a finding.
+
+**What is scanned.** Always the staged diff (`git diff --cached`, added lines only). Additionally the unstaged changes of tracked files when the commit takes the working tree: `-a`/`--all`, `-i`/`--include`, `-o`/`--only`, `-p`/`--patch`/`--interactive`, `--pathspec-from-file` or pathspecs at the end of the command. And when a `git add` or `git stage` appears earlier in the same command line (also inside `bash -c` and `eval`), untracked files that `.gitignore` does not cover as well (names and content): they will already be in the index by the time of the commit. `git add -f` (also `--force`, or `f` in a cluster such as `-fA`) brings in files that `.gitignore` covers: the literal paths it names (`git add -f secret.txt`) are read too, ignored files included. `-A`/`--all` without a pathspec, or a pathspec list of only excludes (`git add -f ':!README'`), takes the whole work tree, from a subdirectory too: then every untracked file is read, ignored ones included (with many ignored files, such as `node_modules`, that is over the limit below, and the commit asks). Without a pathspec and without `-A` git adds nothing, and with `-u` it adds no new files: no extra files are read. A commit that completes a merge with conflicts is scanned as well (the combined diff). The set is a superset: `git add src/a.js && git commit` scans all changes, so an unrelated secret may cause a question too.
+
+**The question** lists up to five findings as `file:line — kind` (`file — kind` for `.env`), then "and N more"; the value itself is never shown:
+
+```
+forge: the commit would include what looks like a secret: config.js:12 — GitHub token; .env — .env file. Take it out of the index (git restore --staged <file>) and keep secrets in a file git ignores — or confirm if it is intentional.
+```
+
+`git add` with an explicit `.env*` path (or an `.env*` glob) asks at once, without a git call; the templates (`.env.example`, `.env.local.example`, `.env.dist` and the like) pass.
+
+**Cannot check — `ask` too:** the directory is known only at run time (`cd "$dir" && git commit`), `--git-dir` or `--work-tree` is given, the directory does not exist yet, a `git add -f` earlier in the line names a path known only at run time (`git add -f "$f"`), a glob, `:/path` or `--pathspec-from-file` (ignored files it adds cannot be read), git failed, or the scan did not finish within 6 s (one limit for all git calls and file reads of every commit in the command line, so that they fit the hook timeout), the changes are too large (a diff over 4 MB, more than 200 untracked files, an untracked text file over 256 KB; untracked binary files are checked by name only). Not a git repository — silence.
+
+**Cost.** git runs only on `git commit`: one call for a plain commit, two when the commit takes the working tree, up to four after a `git add` in the same command and five after a `git add -f`. When `secrets.ignore` is set and the repository root is not needed otherwise, it adds one more call (the root, to match the patterns from the project root); a failed call is followed by one probe call. Other git commands are not affected.
+
+The switch is the profile field [`secrets`](profile.md#profile-fields): `check: false` turns off both the commit scan and the `git add .env` question; `ignore` holds patterns (as in `protected_files`, case-insensitive) whose files are not checked, neither by name nor by content. The patterns are relative to the project root, wherever the shell or the repository root is: in a monorepo whose project is a subdirectory, `fixtures/**` means `<project>/fixtures/**`, and files outside the project are never skipped; `git add` compares the path from the project root too (as written only when the directory is unknown). Without a profile the defaults apply, i.e. the check is on.
+
 ## PowerShell guard
 
-The same hook `pre-bash.mjs` serves Claude Code's PowerShell tool (matcher `Bash|PowerShell`): for `tool_name: "PowerShell"` it applies the PowerShell reading of the same rules — protected pushes, force, `--no-verify`, `reset --hard` and a recursive delete — and for everything else the Bash rules above. Verdicts, silence on allow and fail-closed behaviour are the same as in the Bash guard.
+The same hook `pre-bash.mjs` serves Claude Code's PowerShell tool (matcher `Bash|PowerShell`): for `tool_name: "PowerShell"` it applies the PowerShell reading of the same rules — protected pushes, force, `--no-verify`, `reset --hard` and a recursive delete — and for everything else the Bash rules above. Verdicts, silence on allow and fail-closed behaviour are the same as in the Bash guard. The same [secret check in a commit](#secrets-in-a-commit) applies to `git commit` from PowerShell.
 
 ### How a PowerShell command is read
 
@@ -190,4 +222,5 @@ As in `.gitignore`: a pattern without `/` matches at any depth; a pattern with `
 - `git push` without a refspec is checked against the name of the current local branch. If the upstream points to a branch with a different name or `remote.<name>.push` defines its own refspecs, the guard doesn't see it ([Guard rules](#guard-rules)).
 - `--no-verify` is caught only for `git commit` and `git push`. `git -c core.hooksPath=… commit`, `git merge --no-verify` and environment variables that disable hooks are not caught.
 - Other destructive commands are not guarded: `git clean`, `git checkout -- .`, `git restore`, `git branch -D`, `find -delete`, non-recursive `rm`.
+- **Secrets in a commit** ([section](#secrets-in-a-commit)) are searched only by the listed patterns: no entropy search, no other providers, binary key files (`.p12` and the like) are not read. Repository overrides through environment variables (`GIT_DIR=…`, `GIT_INDEX_FILE`) are not taken into account; `git commit --amend` checks only the new changes; `git merge`, `cherry-pick` and `stash` are not checked; a repository created later in the same command (`git init && git add . && git commit` in the current directory) is not checked: it is not a repository yet at the time of the check, so the guard stays silent (`git init x && cd x && …` asks: the directory does not exist yet). A `-diff` or `binary` attribute in `.gitattributes` makes git report the file as binary, and its text is not scanned. A value that contains a placeholder word (`example`, `your`, `dummy`…) is skipped even if it is real, and a plain `sk-` key directly followed by `-` or `_` is not recognized as an OpenAI key.
 - The [file guard](#file-guard) fires only on edit tools. Reading `.env` is not blocked; writing through Bash (`echo … > .env`, `sed -i`) is not caught.

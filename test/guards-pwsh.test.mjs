@@ -2,6 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { checkPowerShell } from '../lib/guards.mjs';
 import { setLang } from '../lib/i18n.mjs';
+import { git, gitRepo, write } from './helpers.mjs';
 
 setLang('ru');
 
@@ -697,4 +698,29 @@ test('pwsh: long chains of Set-Location, Push-Location, -WorkingDirectory and gi
     assert.equal(decision, want, cmd.slice(0, 40));
     assert.ok(ms < 1500, `${ms.toFixed(0)} ms for ${cmd.slice(0, 40)}`);
   }
+});
+
+test('secrets: git commit and git add .env from PowerShell are checked like from Bash', () => {
+  const token = 'gh' + 'p_' + 'A1b2'.repeat(9); // built at run time: no token literal in a source file
+  const repo = gitRepo('feature/x');
+  const sctx = { cwd: repo, root: repo, protectedBranches: [], secrets: { check: true, ignore: [] } };
+  write(repo, '.env', 'X=1\n');
+  const add = checkPowerShell('git add .env; git commit -m x', sctx);
+  assert.equal(add.decision, 'ask');
+  assert.match(add.reason, /«\.env»/);
+  assert.match(add.reason, /\.env — файл \.env/, 'the commit after the add sees the untracked .env');
+  assert.equal(checkPowerShell('git add -A; git commit -m x', sctx).decision, 'ask');
+  assert.equal(checkPowerShell('git commit -m x', sctx).decision, 'allow', 'untracked .env stays out without an add');
+
+  write(repo, 'a.txt', `k=${token}\n`);
+  git(repo, 'add', 'a.txt');
+  const staged = checkPowerShell('git commit -m x', sctx);
+  assert.equal(staged.decision, 'ask');
+  assert.match(staged.reason, /a\.txt:1 — токен GitHub/);
+  assert.ok(!staged.reason.includes(token));
+  assert.equal(checkPowerShell("git @('commit', '-m', 'x')", sctx).decision, 'ask');
+  assert.match(checkPowerShell('Set-Location $dir; git commit -m x', sctx).reason, /известном только во время выполнения/);
+  assert.equal(checkPowerShell('git commit -m x', { ...sctx, secrets: { check: false, ignore: [] } }).decision, 'allow');
+  assert.equal(nix('git add .env').decision, 'ask', 'no git call needed');
+  assert.equal(nix('git add .env.example').decision, 'allow');
 });

@@ -10,12 +10,14 @@ forge — плагин Claude Code на Node ≥ 20 (ESM, `.mjs`, ни одно�
 |---|---|
 | `.claude-plugin/` | `plugin.json` (версия плагина), `marketplace.json` (маркетплейс `forge-dev`) |
 | `hooks/hooks.json` | события, матчеры, таймауты; `hooks/*.mjs` — по скрипту на событие; обычные хуки идут через `runHook` из `lib/util.mjs`, охранные `pre-bash` и `pre-edit` — без него (см. «Fail-open») |
-| `lib/guards.mjs`, `lib/shell.mjs`, `lib/pwsh.mjs`, `lib/glob.mjs` | охрана Bash, PowerShell и файлов (`checkBash`, `checkPowerShell`, общий `checkWords`), разбиение команд Bash и PowerShell, glob-шаблоны |
-| `lib/profile.mjs` + `config/profile.schema.json` | профиль: значения по умолчанию, валидация, схема для редактора — держи их в согласии |
+| `lib/guards.mjs`, `lib/shell.mjs`, `lib/pwsh.mjs`, `lib/glob.mjs` | охрана Bash, PowerShell и файлов (`checkBash`, `checkPowerShell`, общий `checkWords`; проверка секретов перед `git commit` и вопрос про `git add .env`), разбиение команд Bash и PowerShell, glob-шаблоны |
+| `lib/secrets.mjs` | поиск секретов в коммите: шаблоны (AWS, GitHub, Anthropic, OpenAI, Slack, закрытый ключ, `.env`), `scanPatch`/`scanText`/`isSecretFile`, `pendingFindings` (то, что заберёт коммит: вызовы git, пределы по размеру и числу файлов, таймаут). Охрана зовёт его как `ctx.scanSecrets \|\| pendingFindings`; поле профиля `secrets` (`check`, `ignore`) |
+| `lib/profile.mjs` + `config/profile.schema.json` | профиль: значения по умолчанию, валидация, схема для редактора — держи их в согласии; `work`/`workPaths` — пути спеки и плана (`forge work`) |
 | `lib/state.mjs`, `lib/edits.mjs` | `.forge/state.json` и журнал правок `.forge/edits.jsonl` с курсорами |
 | `lib/verify.mjs`, `lib/sh.mjs`, `lib/cli.mjs` | запуск команд проверки (оболочка — `/bin/sh` или Git Bash на Windows, `lib/sh.mjs`); команды CLI и `verifyAndRecord` (общая с Stop-хуком) |
 | `lib/route.mjs` + `config/routing.json` | роли, таблица режимов, инварианты `checkTable` |
 | `lib/detect.mjs` | автоопределение стека для `forge init` |
+| `lib/plan.mjs` | чтение плана `artifacts.plan` для `SessionStart` после компакции: `parsePlan`, `nextTask`, `planProgress` (fail-open, без исключений) |
 | `lib/docs.mjs` | агентские файлы: `checkDocs` и `fixDocs` (`forge docs`), `rootDocStatus` (строка начала сессии), `docsReminder` (напоминание в `Stop`, с памятью `state.docs.reminded`); `DEFAULT_DOCS_WATCH` и `DEFAULT_DOCS_MAX_LINES` живут в `lib/profile.mjs` |
 | `lib/changelog.mjs` | журнал в формате Keep a Changelog: `parseChangelog`, `checkChangelog` (коды замечаний), `suggestBump` (уровень по записям `[Unreleased]`), `releaseChangelog` (перенос в версию и ссылки сравнения, остальное байт в байт), `bumpVersion`, `compareVersions` (semver — re-export из `lib/semver.mjs`) |
 | `lib/finish.mjs` | `forge finish`: `resolveBase` (`--base` → `origin/HEAD` → `git.protected_branches`), `analyzeFinish` — проверки с id, команды обоих способов `git.flow` как данные `{cmd, cwd}` и заметки; git не меняет, проверку получает параметром `runVerify` от `cmdFinish` (без обратного импорта `cli.mjs`); `unreleasedGap` из `lib/release.mjs` — общая с напоминанием `Stop` проверка пустого `[Unreleased]` |
@@ -64,6 +66,7 @@ claude --plugin-dir .                                     # живая пров�
 ## Тесты
 
 - `npm test` идёт с `FORGE_LANG=ru`: тесты сообщений проверяют русский текст, английский — в `test/*-en.test.mjs`, где язык задаётся явно. Новое пользовательское сообщение — ключ в обоих языках каталога модуля (`defineCatalog`); без перевода падает тест паритета в `test/i18n.test.mjs`.
+- Токены в тестовых фикстурах собираются во время выполнения (конкатенацией префикса и тела): полный литерал токена в исходниках сработает на охране при коммите самого forge.
 - Логика `lib/` — юнит-тесты. Хуки — сквозные: `runHookScript(name, input, { projectDir })` подаёт JSON на stdin и проверяет код выхода, stdout и разобранный JSON. CLI — `runCli(args, { cwd })`.
 - Фикстуры — `gitRepo(branch)` (подпись коммитов и глобальные git-хуки выключены), `writeProfile`, `write`, изолированный `CLAUDE_CONFIG_DIR`. Тест не должен читать `~/.claude` разработчика, подписывать коммиты или запускать его git-хуки.
 - Любое изменение правила охраны — тесты в `test/guards.test.mjs` и на запрещённое написание, и на похожее разрешённое: ложное срабатывание — тоже баг. Изменения разбора команд — ещё и в `test/glob-shell.test.mjs`.
@@ -91,5 +94,5 @@ claude --plugin-dir .                                     # живая пров�
 ## Где решения
 
 - `docs/spec.md` — цели, принципы, архитектура, план версий. Меняешь дизайнерское решение — обнови спеку.
-- Спека и план отдельной фичи — рабочие файлы в `.forge/work/<slug>/` (`/forge:plan`), в git не попадают. Когда фича влита, то, что нужно знать дальше, переносится в `docs/spec.md`, AGENTS.md или страницы `docs/en/` и `docs/ru/`; история — в git.
+- Спека и план отдельной фичи (`/forge:plan`) лежат по путям поля `work` профиля (`forge work <slug>`); в этом репозитории локальный профиль оставляет умолчание `.forge/work/<slug>/`, в git они не попадают. Когда фича влита, то, что нужно знать дальше, переносится в `docs/spec.md`, AGENTS.md или страницы `docs/en/` и `docs/ru/`; история — в git.
 - `README.md` (английский) и `README.ru.md` (русский) — короткие обзоры со ссылками на справку. Сама справка — в `docs/en/` и `docs/ru/`: одинаковый набор страниц (`hooks`, `guards`, `profile`, `routing`, `agent-docs`, `releases`, `skills`, `cli`, `state`, `development`) и одинаковая структура разделов, по фактическому поведению. Меняешь поведение — правь нужную страницу в обоих языках сразу: охрана — `guards.md`, хуки — `hooks.md`, CLI — `cli.md`, профиль — `profile.md`, маршрутизация — `routing.md`. При выпуске — значок версии в обоих README (его правит `forge release`, если бейдж указан в `release.version_files`).

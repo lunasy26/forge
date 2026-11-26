@@ -11,6 +11,7 @@ The hooks and the skills call `forge` for everything deterministic; you can run 
 | Command | What it does | Exit code |
 |---|---|---|
 | `forge init` | Shows the [stack](profile.md#stack-detection), the proposed profile and notes; writes nothing | 0 |
+| `forge init --work local\|docs` | Chooses where [`forge:plan`](skills.md#forgeplan) keeps specs and plans: `local` — `.forge/work/` (the default), `docs` — `docs/specs/{slug}.md` and `docs/plans/{slug}.md`. Works with the preview and with `--yes`; without it `init` [proposes](profile.md#stack-detection) `docs` when `docs/specs/` or `docs/plans/` exists | 0; 2 — missing or unknown value |
 | `forge init --yes [--force]` | Writes the profile and a copy of the schema, adds the [excludes](profile.md#what-init-writes) to `.git/info/exclude`; overwrites an existing profile only with `--force` | 0; 1 — the profile already exists |
 | `forge state [get [key]]` | The whole [state](state.md#state-file) or a field by dotted path (`task.slug`) | 0 |
 | `forge state set <key> <value> […]` | Changes fields in pairs; a value is read as JSON, otherwise as a string. Checked: `tier` (integer 0–3), `stage` (`spec`, `plan`, `execute`, `review`, `finish` or `null`), `mode` | 0; 2 — error |
@@ -18,6 +19,7 @@ The hooks and the skills call `forge` for everything deterministic; you can run 
 | `forge mode [eco\|normal\|max]` | Shows or switches the [mode](routing.md#models-by-mode) (in the state) and prints its table | 0; 2 — unknown mode |
 | `forge route <role> [--json]` | `role=… mode=… agent=… model=… effort=…` or the same as JSON ([how skills use it](routing.md#how-skills-dispatch-a-role)) | 0; 2 — no role given or unknown role |
 | `forge route --table` | The current mode's table | 0 |
+| `forge work <slug> [--json]` | `spec=… plan=…`, or `{spec, plan}` as JSON: the paths from the profile's [`work`](profile.md#profile-fields) with `{slug}` and `{date}` filled in | 0; 2 — no slug given, or it is not kebab-case (`add-login`) |
 | `forge verify [--fast] [--json]` | Runs [`verify.steps`](hooks.md#verification-on-stop), records the result and the failure counter; `--json` prints `{ok, summary, failed, streak}` | 0 — passed; 1 — failed, no profile or no steps; 4 — skipped, there is no [Git Bash](hooks.md#which-shell-runs-the-commands) to run the steps (Windows) |
 | `forge docs [--fix] [--json]` | Checks `AGENTS.md`/`CLAUDE.md` ([codes and levels](agent-docs.md#issue-codes)); `--fix` creates missing and empty `CLAUDE.md` files with the `@AGENTS.md` line; `--json` prints an array of `{code, level, path, message, fixable}` | 0 — no errors (warnings allowed); 1 — there is an error; 2 — unknown argument |
 | `forge release --check [--json]` | Checks the changelog and the version files ([codes](releases.md#changelog-checks)); `--json` prints an array of `{code, level, path, message}` | 0 — no errors (warnings allowed); 1 — there is an error, or no `release` section; 2 — usage error |

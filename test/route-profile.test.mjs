@@ -283,3 +283,50 @@ test('equality boundaries of the senior ladder are valid', () => {
   assert.deepEqual(effectiveTable(routing, { normal: { senior: 'opus/high', reviewer: 'opus/high' } }).warnings, []);
   assert.deepEqual(effectiveTable(routing, { eco: { senior: 'opus/high', reviewer: 'opus/high' } }).warnings, []);
 });
+
+function secretsOf(secrets) {
+  const dir = tempDir();
+  writeProfile(dir, { secrets });
+  return loadProfile(dir);
+}
+
+test('profile.secrets: on by default with no ignore patterns, fresh arrays per call', () => {
+  assert.deepEqual(defaultProfile().secrets, { check: true, ignore: [] });
+  assert.notEqual(defaultProfile().secrets.ignore, defaultProfile().secrets.ignore);
+  assert.deepEqual(loadProfile(tempDir()).profile.secrets, { check: true, ignore: [] });
+  const dir = tempDir();
+  writeProfile(dir, { mode: 'eco' });
+  const { profile, errors } = loadProfile(dir);
+  assert.deepEqual(errors, []);
+  assert.deepEqual(profile.secrets, { check: true, ignore: [] });
+  assert.deepEqual(secretsOf({}).profile.secrets, { check: true, ignore: [] });
+  assert.deepEqual(secretsOf({}).errors, []);
+});
+
+test('profile.secrets: valid fields are taken over', () => {
+  const both = secretsOf({ check: false, ignore: ['fixtures/**', '!fixtures/keep.txt'] });
+  assert.deepEqual(both.errors, []);
+  assert.deepEqual(both.profile.secrets, { check: false, ignore: ['fixtures/**', '!fixtures/keep.txt'] });
+  const onlyIgnore = secretsOf({ ignore: ['*.pem'] });
+  assert.deepEqual(onlyIgnore.profile.secrets, { check: true, ignore: ['*.pem'] });
+});
+
+test('profile.secrets: a wrong type is an error and the field falls back to its default', () => {
+  const badCheck = secretsOf({ check: 'yes', ignore: ['a/**'] });
+  assert.equal(badCheck.errors.length, 1);
+  assert.match(badCheck.errors[0], /secrets\.check/);
+  assert.deepEqual(badCheck.profile.secrets, { check: true, ignore: ['a/**'] });
+
+  for (const ignore of [[1], 'a/**']) {
+    const bad = secretsOf({ check: false, ignore });
+    assert.equal(bad.errors.length, 1, JSON.stringify(ignore));
+    assert.match(bad.errors[0], /secrets\.ignore/);
+    assert.deepEqual(bad.profile.secrets, { check: false, ignore: [] });
+  }
+
+  for (const value of ['no', true, []]) {
+    const bad = secretsOf(value);
+    assert.match(bad.errors.join(), /secrets: /);
+    assert.deepEqual(bad.profile.secrets, { check: true, ignore: [] });
+  }
+});

@@ -4,8 +4,10 @@ import { mkdirSync, mkdtempSync, rmSync } from 'node:fs';
 import { join } from 'node:path';
 import { tmpdir } from 'node:os';
 import { checkBash, checkFile, branchMatches } from '../lib/guards.mjs';
+import { pendingFindings } from '../lib/secrets.mjs';
 import { DEFAULT_PROTECTED_FILES } from '../lib/profile.mjs';
 import { setLang } from '../lib/i18n.mjs';
+import { git, gitRepo, tempDir, write } from './helpers.mjs';
 
 setLang('ru'); // the Russian texts are asserted below; English ones live in guards-en.test.mjs
 
@@ -900,4 +902,488 @@ test('the branch of a directory is read once per check, and not at all when forc
   // a protected branch named outright is still reported as such
   assert.match(checkBash('git push --force origin main', ctx()).reason, /«main»/);
   assert.match(checkBash('git push --force', ctx('main')).reason, /--force/);
+});
+
+// ---- secrets in git commit and git add ----
+// Fixtures are assembled at run time: no complete token literal may appear in a source file,
+// otherwise committing forge itself would trip this very guard.
+const ghToken = 'gh' + 'p_' + 'A1b2'.repeat(9);
+const awsKey = 'AK' + 'IA' + 'Q3X7K9M2P5R8T1VW';
+const anthropicKey = 'sk' + '-ant-' + 'api03-' + 'Ab1Cd2Ef3Gh4Ij5Kl6Mn7';
+const openaiKey = 'sk' + '-' + 'Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8';
+const slackToken = 'xo' + 'xb-' + '1234567890-abcdefghij';
+const rsaHeader = '-----BEGIN ' + 'RSA PRIVATE KEY-----';
+
+const sctx = (repo, extra = {}) => ({ cwd: repo, root: repo, protectedBranches: [], secrets: { check: true, ignore: [] }, ...extra });
+const scheck = (cmd, repo, extra) => checkBash(cmd, sctx(repo, extra));
+/** A repository on a feature branch with these files written and staged. */
+function stagedRepo(files = {}) {
+  const repo = gitRepo('feature/x');
+  for (const [rel, content] of Object.entries(files)) {
+    write(repo, rel, content);
+    git(repo, 'add', rel);
+  }
+  return repo;
+}
+
+test('secrets: a staged token asks, naming file, line and kind but never the value', () => {
+  const repo = stagedRepo({ 'src/config.js': `const a = 1;\nconst token = '${ghToken}';\n` });
+  const v = scheck('git commit -m "add config"', repo);
+  assert.equal(v.decision, 'ask');
+  assert.match(v.reason, /^forge: /);
+  assert.match(v.reason, /src\/config\.js:2 — токен GitHub/);
+  assert.ok(!v.reason.includes(ghToken), 'the value is not in the reason');
+  assert.ok(!v.reason.includes('A1b2'), 'not even a part of it');
+});
+
+test('secrets: every kind is named in the reason', () => {
+  for (const [content, name] of [
+    [`k=${awsKey}`, 'ключ доступа AWS'],
+    [`k=${ghToken}`, 'токен GitHub'],
+    [`k=${anthropicKey}`, 'ключ API Anthropic'],
+    [`k=${openaiKey}`, 'ключ API OpenAI'],
+    [`k=${slackToken}`, 'токен Slack'],
+    [`${rsaHeader}\nMIIE\n`, 'закрытый ключ'],
+  ]) {
+    const repo = stagedRepo({ 'a.txt': content });
+    const v = scheck('git commit -m x', repo);
+    assert.equal(v.decision, 'ask', name);
+    assert.ok(v.reason.includes(`a.txt:1 — ${name}`), `${name}: ${v.reason}`);
+  }
+});
+
+test('secrets: a staged .env file asks and is named without a line number', () => {
+  const repo = stagedRepo({ '.env': 'DEBUG=1\n', 'config/.env.local': 'X=1\n' });
+  const v = scheck('git commit -m x', repo);
+  assert.equal(v.decision, 'ask');
+  assert.match(v.reason, /\.env — файл \.env/);
+  assert.match(v.reason, /config\/\.env\.local — файл \.env/);
+  assert.doesNotMatch(v.reason, /:0/);
+});
+
+test('secrets: git add earlier in the same command line counts, untracked files included', () => {
+  for (const cmd of [
+    'git add -A && git commit -m x',
+    'git add . ; git commit -m x',
+    'git stage --all && git commit -m x',
+    'bash -c "git add -A && git commit -m x"',
+    'eval "git add -A" && git commit -m x',
+    '(git add -A) && git commit -m x',
+  ]) {
+    const repo = gitRepo('feature/x');
+    write(repo, '.env', 'DEBUG=1\n');
+    const v = scheck(cmd, repo);
+    assert.equal(v.decision, 'ask', cmd);
+    assert.match(v.reason, /\.env — файл \.env/, cmd);
+  }
+  const repo = gitRepo('feature/x');
+  write(repo, 'notes.txt', `token ${ghToken}\n`);
+  assert.equal(scheck('git add -A && git commit -m x', repo).decision, 'ask', 'untracked content');
+  // a commit before the add, or a commit without an add, does not take untracked files
+  assert.equal(scheck('git commit -m x && git add src.js', repo).decision, 'allow');
+  assert.equal(scheck('git commit -m x', repo).decision, 'allow');
+});
+
+test('secrets: commit -a, -i, -o and pathspecs take unstaged changes of tracked files', () => {
+  const repo = stagedRepo({ 'src.js': 'one\n' });
+  git(repo, 'commit', '-q', '-m', 'src');
+  write(repo, 'src.js', `one\nkey = ${awsKey}\n`);
+  for (const cmd of [
+    'git commit -am x',
+    'git commit -a -m x',
+    'git commit --all -m x',
+    'git commit -m x src.js',
+    'git commit src.js -m x',
+    'git commit -m x -- src.js',
+    'git commit -i -m x src.js',
+    'git commit --only -m x src.js',
+    'git commit -qam x',
+    'git commit -m x $files',
+    'git commit --pathspec-from-file=list.txt -m x',
+    'git commit --patch',
+  ]) {
+    const v = scheck(cmd, repo);
+    assert.equal(v.decision, 'ask', cmd);
+    assert.match(v.reason, /src\.js:2 — ключ доступа AWS/, cmd);
+  }
+  // only the index: the unstaged change stays out of the commit
+  for (const cmd of [
+    'git commit -m x',
+    'git commit -m "all of it"',
+    'git commit --message all',
+    'git commit -F msg.txt',
+    'git commit -C HEAD',
+    'git commit --amend --no-edit',
+    'git commit --author "A <a@b.c>" -m x',
+    'git commit --fixup HEAD',
+    'git commit -uall -m x',
+    'git commit -m x --',
+    'git commit --allow-empty -m x',
+  ]) {
+    assert.equal(scheck(cmd, repo).decision, 'allow', cmd);
+  }
+});
+
+test('secrets: the scan runs where git runs (-C, cd), not repository is silent', () => {
+  const outer = tempDir();
+  const sub = join(outer, 'sub');
+  mkdirSync(sub);
+  git(sub, 'init', '-q', '-b', 'feature/x');
+  write(sub, 'a.txt', `k=${ghToken}\n`);
+  git(sub, 'add', 'a.txt');
+  assert.equal(scheck('git commit -m x', outer).decision, 'allow', 'not a repository');
+  assert.equal(scheck('git -C sub commit -m x', outer).decision, 'ask');
+  assert.equal(scheck('cd sub && git commit -m x', outer).decision, 'ask');
+  assert.equal(scheck(`git -C ${sub} commit -m x`, outer).decision, 'ask');
+  // and a clean repository passes from a dirty one
+  const clean = gitRepo('feature/x');
+  assert.equal(scheck(`git -C ${clean} commit -m x`, sub).decision, 'allow');
+});
+
+test('secrets: an unknown directory or repository asks', () => {
+  const repo = stagedRepo({ 'a.txt': 'fine\n' });
+  for (const cmd of [
+    'cd "$X" && git commit -m x',
+    'git -C "$dir" commit -m x',
+    'git --git-dir=/elsewhere/.git commit -m x',
+    'git --git-dir /elsewhere/.git commit -m x',
+    'git --work-tree=/elsewhere commit -m x',
+    'cd does-not-exist-yet && git commit -m x',
+  ]) {
+    const v = scheck(cmd, repo);
+    assert.equal(v.decision, 'ask', cmd);
+    assert.match(v.reason, /известном только во время выполнения/, cmd);
+  }
+  // -c values are harmless
+  assert.equal(scheck('git -c user.name=x commit -m x', repo).decision, 'allow');
+});
+
+test('secrets: more than five findings are cut with "и ещё N"', () => {
+  const files = {};
+  for (let i = 1; i <= 7; i++) files[`f${i}.txt`] = `k=${ghToken}\n`;
+  const v = scheck('git commit -m x', stagedRepo(files));
+  assert.equal(v.decision, 'ask');
+  assert.equal((v.reason.match(/токен GitHub/g) || []).length, 5);
+  assert.match(v.reason, /и ещё 2/);
+});
+
+test('secrets: a scanner that cannot answer asks with its own reason', () => {
+  const dir = tempDir();
+  const err = checkBash('git commit -m x', sctx(dir, { scanSecrets: () => ({ unchecked: 'error' }) }));
+  assert.equal(err.decision, 'ask');
+  assert.match(err.reason, /git не ответил/);
+  const big = checkBash('git commit -m x', sctx(dir, { scanSecrets: () => ({ unchecked: 'tooLarge' }) }));
+  assert.equal(big.decision, 'ask');
+  assert.match(big.reason, /слишком велик/);
+  // what the scanner is asked for (the time budget is checked below)
+  const calls = [];
+  const spy = (cwd, { deadlineMs, ...opts }) => (calls.push([cwd, opts]), { findings: [] });
+  checkBash('git commit -m x', sctx(dir, { scanSecrets: spy, secrets: { check: true, ignore: ['vendor/**'] } }));
+  checkBash('git commit -am x', sctx(dir, { scanSecrets: spy }));
+  checkBash('git add src.js && git commit -m x', sctx(dir, { scanSecrets: spy }));
+  assert.deepEqual(calls, [
+    [dir, { worktree: false, untracked: false, forced: [], forcedAll: false, ignore: ['vendor/**'], base: dir }],
+    [dir, { worktree: true, untracked: false, forced: [], forcedAll: false, ignore: [], base: dir }],
+    [dir, { worktree: true, untracked: true, forced: [], forcedAll: false, ignore: [], base: dir }],
+  ]);
+});
+
+const sleep = (ms) => Atomics.wait(new Int32Array(new SharedArrayBuffer(4)), 0, 0, ms);
+
+test('secrets: one time budget for every commit scan of a command line', () => {
+  const dir = tempDir();
+  mkdirSync(join(dir, 'a'));
+  mkdirSync(join(dir, 'b'));
+  const cmd = 'git commit -m x; git -C a commit -m y; git -C b commit -m z';
+  const seen = [];
+  const slow = (cwd, opts) => {
+    seen.push(opts.deadlineMs);
+    sleep(40);
+    return { findings: [] };
+  };
+  assert.equal(checkBash(cmd, sctx(dir, { scanSecrets: slow, secretsBudgetMs: 2000 })).decision, 'allow');
+  assert.equal(seen.length, 3);
+  assert.ok(seen[0] > 0 && seen[0] <= 2000, seen.join(','));
+  assert.ok(seen[1] <= seen[0] - 40 && seen[2] <= seen[1] - 40, seen.join(','));
+  // the default budget fits the 10 s hook timeout
+  seen.length = 0;
+  checkBash('git commit -m x', sctx(dir, { scanSecrets: slow }));
+  assert.ok(seen[0] > 5000 && seen[0] <= 6000, String(seen[0]));
+  // a spent budget gives the next scan nothing, and the real scanner then cannot answer: ask
+  seen.length = 0;
+  const first = (cwd, opts) => {
+    seen.push(opts.deadlineMs);
+    if (seen.length === 1) {
+      sleep(60);
+      return { findings: [] };
+    }
+    return pendingFindings(cwd, opts);
+  };
+  const v = checkBash(cmd, sctx(dir, { scanSecrets: first, secretsBudgetMs: 30 }));
+  assert.equal(v.decision, 'ask');
+  assert.match(v.reason, /git не ответил/);
+  assert.equal(seen[1], 0);
+});
+
+test('secrets: the scan runs only for git commit, once per directory and mode, not when --no-verify denies', () => {
+  const dir = tempDir();
+  let calls = 0;
+  const counting = sctx(dir, { scanSecrets: () => (calls++, { findings: [] }) });
+  for (const cmd of ['git status', 'git log -p', 'git add src.js', 'git diff --cached', 'ls && git push origin feature/x']) {
+    assert.equal(checkBash(cmd, counting).decision, 'allow', cmd);
+  }
+  assert.equal(calls, 0);
+  assert.equal(checkBash('git commit -m a; git commit -m b; bash -c "git commit -m c"', counting).decision, 'allow');
+  assert.equal(calls, 1);
+  calls = 0;
+  const found = sctx(dir, { scanSecrets: () => (calls++, { findings: [{ file: 'a', line: 1, kind: 'aws' }] }) });
+  assert.equal(checkBash('git commit --no-verify -m x', found).decision, 'deny');
+  assert.equal(checkBash('git commit -nm x', found).decision, 'deny');
+  assert.equal(calls, 0);
+  // without ctx.secrets (callers that do not opt in) nothing is scanned
+  assert.equal(checkBash('git commit -m x', { cwd: dir, root: dir, protectedBranches: [] }).decision, 'allow');
+});
+
+test('secrets: look-alikes and what stays out of the commit pass', () => {
+  const cases = [
+    ['.env.example', { '.env.example': 'TOKEN=\n', '.env.sample': 'X=\n', 'config/.env.template': 'Y=\n' }],
+    ['AWS example key', { 'docs.md': 'AKIAIOSFODNN7' + 'EXAMPLE\n' }],
+    ['short sk-', { 'a.js': 'const s = "sk-abc";\n' }],
+    ['.envrc and env.js', { '.envrc': 'use nix\n', 'env.js': 'x\n' }],
+  ];
+  for (const [name, files] of cases) {
+    assert.equal(scheck('git commit -m x', stagedRepo(files)).decision, 'allow', name);
+  }
+  assert.equal(scheck('git commit -m x', gitRepo('feature/x')).decision, 'allow', 'empty index');
+
+  // a secret only in a deleted line
+  const removed = stagedRepo({ 'a.txt': `keep\nk=${ghToken}\n` });
+  git(removed, 'commit', '-q', '-m', 'old');
+  write(removed, 'a.txt', 'keep\n');
+  git(removed, 'add', 'a.txt');
+  assert.equal(scheck('git commit -m x', removed).decision, 'allow', 'deleted line');
+
+  // .env taken out of the index
+  const untracked = stagedRepo({ '.env': 'X=1\n' });
+  git(untracked, 'commit', '-q', '-m', 'oops');
+  git(untracked, 'rm', '-q', '--cached', '.env');
+  assert.equal(scheck('git commit -m x', untracked).decision, 'allow', 'git rm --cached .env');
+
+  // an unrelated unstaged secret in a tracked file, without -a
+  const tracked = stagedRepo({ 'a.txt': 'one\n' });
+  git(tracked, 'commit', '-q', '-m', 'a');
+  write(tracked, 'a.txt', `k=${awsKey}\n`);
+  write(tracked, 'b.txt', 'two\n');
+  git(tracked, 'add', 'b.txt');
+  assert.equal(scheck('git commit -m x', tracked).decision, 'allow', 'unstaged change without -a');
+  assert.equal(scheck('git status && git log', tracked).decision, 'allow');
+});
+
+test('secrets: secrets.ignore and secrets.check: false', () => {
+  const repo = stagedRepo({ 'fixtures/keys.txt': `k=${ghToken}\n`, '.env': 'X=1\n' });
+  assert.equal(scheck('git commit -m x', repo, { secrets: { check: true, ignore: ['fixtures/**', '.env'] } }).decision, 'allow');
+  assert.equal(scheck('git commit -m x', repo, { secrets: { check: true, ignore: ['fixtures/**'] } }).decision, 'ask');
+  assert.equal(scheck('git commit -m x', repo, { secrets: { check: false, ignore: [] } }).decision, 'allow');
+  assert.equal(scheck('git add .env', repo, { secrets: { check: false, ignore: [] } }).decision, 'allow');
+  assert.equal(scheck('git add .env', repo, { secrets: { check: true, ignore: ['.env'] } }).decision, 'allow');
+  assert.equal(scheck('git add config/.env', repo, { secrets: { check: true, ignore: ['config/*'] } }).decision, 'allow');
+  assert.equal(scheck('cd config && git add .env', repo, { secrets: { check: true, ignore: ['config/.env'] } }).decision, 'allow');
+});
+
+test('secrets: git add with a .env path asks at once, without git', () => {
+  // the fake root does not exist: no git call can be behind these verdicts
+  const fake = { cwd: root, root, protectedBranches: [], secrets: { check: true, ignore: [] } };
+  for (const [cmd, file] of [
+    ['git add .env', '.env'],
+    ['git add -f .env', '.env'],
+    ['git add --force -- config/.env.local', 'config/.env.local'],
+    ['git stage .env.production', '.env.production'],
+    ['git add src.js .ENV', '.ENV'],
+    ["git add '.env*'", '.env*'],
+    ['git add :/.env', '.env'],
+    ['git -C sub add .env', '.env'],
+    ['git add .env.local', '.env.local'],
+    ['git add -f .env.local', '.env.local'],
+  ]) {
+    const v = checkBash(cmd, fake);
+    assert.equal(v.decision, 'ask', cmd);
+    assert.ok(v.reason.includes(`«${file}»`), `${cmd}: ${v.reason}`);
+    assert.match(v.reason, /обычно хранят секреты/, cmd);
+  }
+  // without ctx.secrets the rule is on too: it needs no git call
+  assert.equal(checkBash('git add .env', ctx()).decision, 'ask');
+  for (const cmd of [
+    'git add .env.example',
+    'git add config/.env.sample .env.template',
+    "git add '.env.example*'",
+    'git add .env.local.example',
+    'git add .env.dist config/.env.production.sample',
+    "git add '.env.*.example' '.env.dist*' '.env.*.template'",
+    'git add src.js',
+    'git add -A',
+    'git add .',
+    "git add -A ':!.env'",
+    "git add . ':(exclude).env'",
+    'git add -n .env',
+    'git add --dry-run .env',
+    'git add .envrc',
+    'git add "$file"',
+    'git add --chmod +x run.sh',
+    'git status .env',
+    'git diff .env',
+    'echo git add .env',
+  ]) {
+    assert.equal(checkBash(cmd, fake).decision, 'allow', cmd);
+  }
+});
+
+test('secrets: git add -f scans ignored files it force-adds', () => {
+  const repo = gitRepo('feature/x');
+  write(repo, '.gitignore', 'secret.txt\nnotes.txt\n');
+  git(repo, 'add', '.gitignore');
+  git(repo, 'commit', '-q', '-m', 'ignore');
+  write(repo, 'secret.txt', `k=${ghToken}\n`);
+  write(repo, 'notes.txt', 'nothing here\n');
+  for (const cmd of [
+    'git add -f secret.txt && git commit -m x',
+    'git add --force secret.txt && git commit -m x',
+    'git add -fA secret.txt && git commit -m x',
+    'git add --forc secret.txt && git commit -m x',
+    'git add -f -- secret.txt && git commit -m x',
+    'git add -f ./secret.txt && git commit -m x',
+    'git add -f . && git commit -m x',
+    'bash -c "git add -f secret.txt && git commit -m x"',
+    'git add -f secret.txt; git commit -m x',
+  ]) {
+    const v = scheck(cmd, repo);
+    assert.equal(v.decision, 'ask', cmd);
+    assert.match(v.reason, /secret\.txt:1 — токен GitHub/, cmd);
+    assert.ok(!v.reason.includes(ghToken), cmd);
+  }
+  // an absolute path, and from another directory
+  mkdirSync(join(repo, 'sub'));
+  assert.equal(scheck(`git add -f ${join(repo, 'secret.txt')} && git commit -m x`, repo).decision, 'ask');
+  assert.equal(scheck('cd sub && git add -f ../secret.txt && git commit -m x', repo).decision, 'ask');
+  assert.equal(scheck('git -C sub add -f ../secret.txt && git commit -m x', repo).decision, 'ask');
+  // without -f the ignored file stays out (git add would refuse it anyway); other ignored files are fine
+  assert.equal(scheck('git add secret.txt && git commit -m x', repo).decision, 'allow');
+  assert.equal(scheck('git add -f notes.txt && git commit -m x', repo).decision, 'allow');
+  assert.equal(scheck('git add -f -- notes.txt && git commit -m x', repo).decision, 'allow');
+  assert.equal(scheck("git add -f ':!secret.txt' notes.txt && git commit -m x", repo).decision, 'allow');
+  // a commit before the add does not take it
+  assert.equal(scheck('git commit -m x && git add -f secret.txt', repo).decision, 'allow');
+  // -n adds nothing; git add -f without a path adds nothing either ("Nothing specified")
+  assert.equal(scheck('git add -fn secret.txt && git commit -m x', repo).decision, 'allow');
+  assert.equal(scheck('git add -f && git commit -m x', repo).decision, 'allow');
+  // secrets.ignore applies to forced files
+  assert.equal(
+    scheck('git add -f secret.txt && git commit -m x', repo, { secrets: { check: true, ignore: ['secret.txt'] } }).decision,
+    'allow',
+  );
+});
+
+test('secrets: git add -f of the whole tree (-A, --all, only excludes) reads every ignored file', () => {
+  const repo = gitRepo('feature/x');
+  write(repo, '.gitignore', '*.local.json\n');
+  write(repo, 'README', 'readme\n');
+  git(repo, 'add', '.gitignore', 'README');
+  git(repo, 'commit', '-q', '-m', 'ignore');
+  write(repo, 'creds.local.json', `{"k": "${ghToken}"}\n`);
+  const sub = join(repo, 'sub');
+  mkdirSync(sub);
+  const fromSub = (cmd, extra) => checkBash(cmd, sctx(repo, { cwd: sub, ...extra }));
+  for (const cmd of [
+    'git add -Af && git commit -m wip',
+    'git add -f --all && git commit -m x',
+    'git add -A -f && git commit -m x',
+    'git add --forc --al && git commit -m x',
+    'git add --no-ignore-removal -f && git commit -m x',
+    "git add -f ':!README' && git commit -m x",
+    "git add -f ':(exclude)README' ':^sub' && git commit -m x",
+    "git add -f -- ':!README' && git commit -m x",
+  ]) {
+    for (const v of [fromSub(cmd), scheck(cmd, repo)]) {
+      assert.equal(v.decision, 'ask', cmd);
+      assert.match(v.reason, /creds\.local\.json:1 — токен GitHub/, cmd);
+    }
+  }
+  // -u adds no new files, a bare -f adds nothing, -A with a path stays within it, --no-all undoes -A
+  for (const cmd of [
+    'git add -uf && git commit -m x',
+    'git add -u -f creds.local.json && git commit -m x',
+    'git add --update --force && git commit -m x',
+    'git add -f && git commit -m x',
+    'git add -Af README && git commit -m x',
+    'git add -A --no-all -f && git commit -m x',
+    'git add -A && git commit -m x',
+  ]) {
+    assert.equal(fromSub(cmd).decision, 'allow', cmd);
+  }
+  // the add runs in a repository known only at run time: cannot tell what it forces in
+  assert.match(scheck('git -C "$X" add -Af && git commit -m x', repo).reason, /git add -f/);
+  // many ignored files (node_modules) are too many to read: ask, not allow
+  for (let i = 0; i < 201; i++) write(repo, `deps/m${i}.local.json`, '{}\n');
+  rmSync(join(repo, 'creds.local.json'));
+  const big = fromSub('git add -Af && git commit -m x');
+  assert.equal(big.decision, 'ask');
+  assert.match(big.reason, /слишком велик/);
+});
+
+test('secrets: git add -f with a path known only at run time asks', () => {
+  const repo = gitRepo('feature/x');
+  for (const cmd of [
+    'git add -f "$f" && git commit -m x',
+    'git add -f $(ls) && git commit -m x',
+    "git add -f 'sec*' && git commit -m x",
+    'git add -f :/secret.txt && git commit -m x',
+    'git add -f --pathspec-from-file=list.txt && git commit -m x',
+    'git add -f ok.txt "$f" && git commit -m x',
+    'cd "$X" && git add -f a.txt && git commit -m x',
+  ]) {
+    const v = scheck(cmd, repo);
+    assert.equal(v.decision, 'ask', cmd);
+    assert.match(v.reason, /(известном только во время выполнения|git add -f)/, cmd);
+  }
+  assert.match(scheck('git add -f "$f" && git commit -m x', repo).reason, /git add -f с путём/);
+  // without -f a run-time path is nothing special, and no commit means no question
+  assert.equal(scheck('git add "$f" && git commit -m x', repo).decision, 'allow');
+  assert.equal(scheck('git add -f "$f"', repo).decision, 'allow');
+});
+
+test('secrets: git add -f of a .env file asks at the add itself', () => {
+  const repo = gitRepo('feature/x');
+  write(repo, '.gitignore', '.env.local\n');
+  write(repo, '.env.local', 'X=1\n');
+  const v = scheck('git add -f .env.local && git commit -m x', repo);
+  assert.equal(v.decision, 'ask');
+  assert.match(v.reason, /«\.env\.local»/);
+});
+
+test('secrets: secrets.ignore is relative to the project root, not to the shell directory', () => {
+  const repo = gitRepo('feature/x');
+  mkdirSync(join(repo, 'sub/fixtures'), { recursive: true });
+  const withIgnore = (...ignore) => ({ secrets: { check: true, ignore } });
+  assert.equal(scheck('cd sub && git add .env', repo, withIgnore('/.env')).decision, 'ask', 'sub/.env is not /.env');
+  assert.equal(scheck('git add .env', repo, withIgnore('/.env')).decision, 'allow');
+  assert.equal(scheck('cd sub && git add fixtures/.env', repo, withIgnore('fixtures/**')).decision, 'ask');
+  assert.equal(scheck('cd sub && git add fixtures/.env', repo, withIgnore('sub/fixtures/**')).decision, 'allow');
+  assert.equal(scheck('git -C sub add fixtures/.env', repo, withIgnore('sub/fixtures/**')).decision, 'allow');
+  // outside the project: never ignored
+  assert.equal(scheck('git add ../x/.env', repo, withIgnore('**/.env')).decision, 'ask');
+});
+
+test('secrets: the commit scan matches secrets.ignore from the project root (monorepo)', () => {
+  const top = gitRepo('feature/x');
+  const app = join(top, 'packages/app');
+  mkdirSync(app, { recursive: true });
+  write(top, 'packages/app/fixtures/key.txt', `k=${ghToken}\n`);
+  git(top, 'add', '.');
+  const extra = { cwd: app, root: app, secrets: { check: true, ignore: ['fixtures/**'] } };
+  assert.equal(checkBash('git commit -m x', sctx(app, extra)).decision, 'allow', 'inside the project root');
+  write(top, 'other/key.txt', `k=${ghToken}\n`);
+  git(top, 'add', 'other/key.txt');
+  const v = checkBash('git commit -m x', sctx(app, extra));
+  assert.equal(v.decision, 'ask', 'outside the project root');
+  assert.match(v.reason, /other\/key\.txt:1/);
+  assert.doesNotMatch(v.reason, /fixtures/);
 });
