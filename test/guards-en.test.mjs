@@ -5,7 +5,7 @@ import { pathToFileURL } from 'node:url';
 import { checkBash, checkFile } from '../lib/guards.mjs';
 import { setLang } from '../lib/i18n.mjs';
 import { DEFAULT_PROTECTED_FILES } from '../lib/profile.mjs';
-import { PLUGIN_ROOT, gitRepo, runHookScript } from './helpers.mjs';
+import { PLUGIN_ROOT, git, gitRepo, runHookScript, tempDir, write } from './helpers.mjs';
 
 const root = '/work/project';
 const ctx = (branch = 'feature/x') => ({
@@ -101,4 +101,40 @@ test('fail-closed reason falls back to English when the i18n modules cannot load
   });
   assert.equal(r.json.hookSpecificOutput.permissionDecision, 'ask');
   assert.match(r.json.hookSpecificOutput.permissionDecisionReason, /internal error while checking the command/);
+});
+
+test('secret check verdicts read in English', () => {
+  // built at run time: no complete token literal in a source file
+  const token = 'gh' + 'p_' + 'A1b2'.repeat(9);
+  const repo = gitRepo('feature/x');
+  write(repo, 'a.txt', `x\nk=${token}\n`);
+  write(repo, '.env', 'X=1\n');
+  git(repo, 'add', 'a.txt', '.env');
+  const sctx = (extra = {}) => ({ cwd: repo, root: repo, protectedBranches: [], secrets: { check: true, ignore: [] }, ...extra });
+  inEnglish(() => {
+    const cases = [
+      ['git commit -m x', sctx(), /^forge: the commit would include what looks like a secret: (?=.*a\.txt:2 — GitHub token)(?=.*\.env — \.env file).*git restore --staged/],
+      ['git add config/.env.local', sctx(), /^forge: git add puts "config\/\.env\.local" in the index — such files usually hold secrets/],
+      ['cd "$X" && git commit -m x', sctx(), /directory or repository known only at run time.*Confirm\./],
+      ['git add -f "$f" && git commit -m x', sctx(), /^forge: git add -f with a path known only at run time.*cannot be checked for secrets.*Confirm\./],
+      ['git commit -m x', sctx({ scanSecrets: () => ({ unchecked: 'error' }) }), /git did not answer or failed/],
+      ['git commit -m x', sctx({ scanSecrets: () => ({ unchecked: 'tooLarge' }) }), /too large to check for secrets/],
+    ];
+    for (const [cmd, c, re] of cases) {
+      const v = checkBash(cmd, c);
+      assert.equal(v.decision, 'ask', cmd);
+      assert.match(v.reason, re, cmd);
+      assert.doesNotMatch(v.reason, CYRILLIC, cmd);
+      assert.ok(!v.reason.includes(token), cmd);
+    }
+    const kinds = [
+      'AK' + 'IA' + 'Q3X7K9M2P5R8T1VW', 'sk' + '-ant-' + 'api03-' + 'Ab1Cd2Ef3Gh4Ij5Kl6Mn7', 'sk' + '-' + 'Ab1Cd2Ef3Gh4Ij5Kl6Mn7Op8',
+      'xo' + 'xb-' + '1234567890-abcdefghij', '-----BEGIN ' + 'RSA PRIVATE KEY-----',
+    ];
+    const findings = { findings: kinds.map((_, i) => ({ file: `f${i}`, line: 1, kind: ['aws', 'anthropic', 'openai', 'slack', 'privateKey'][i] })) };
+    findings.findings.push({ file: 'g', line: 3, kind: 'github' });
+    const v = checkBash('git commit -m x', { cwd: tempDir(), root: '/r', protectedBranches: [], secrets: { check: true, ignore: [] }, scanSecrets: () => findings });
+    for (const name of ['AWS access key', 'Anthropic API key', 'OpenAI API key', 'Slack token', 'private key']) assert.ok(v.reason.includes(name), name);
+    assert.match(v.reason, /and 1 more/);
+  });
 });

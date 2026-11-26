@@ -133,6 +133,31 @@ test('pre-bash: the PowerShell tool is guarded with PowerShell rules', () => {
   );
 });
 
+test('pre-bash: a staged secret asks before git commit, secrets.check: false turns it off', () => {
+  const token = 'gh' + 'p_' + 'A1b2'.repeat(9); // built at run time: no token literal in a source file
+  const repo = gitRepo('feature/x');
+  write(repo, 'src/config.js', `export const token = '${token}';\n`);
+  git(repo, 'add', 'src/config.js');
+  const run = (command, tool_name = 'Bash') => runHookScript('pre-bash', { cwd: repo, tool_name, tool_input: { command } }, { projectDir: repo });
+  // without a profile the defaults apply: the check is on
+  for (const tool of ['Bash', 'PowerShell']) {
+    const r = run('git commit -m x', tool);
+    assert.equal(r.code, 0, tool);
+    assert.equal(r.json?.hookSpecificOutput.permissionDecision, 'ask', tool);
+    assert.match(r.json.hookSpecificOutput.permissionDecisionReason, /src\/config\.js:1 — токен GitHub/, tool);
+    assert.ok(!r.stdout.includes(token), tool);
+  }
+  assert.equal(run('git add .env').json?.hookSpecificOutput.permissionDecision, 'ask');
+  assert.equal(run('git status').stdout, '');
+  writeProfile(repo, { secrets: { ignore: ['src/**'] } });
+  assert.equal(run('git commit -m x').stdout, '', 'ignored path');
+  writeProfile(repo, { secrets: { check: false } });
+  const off = run('git commit -m x');
+  assert.equal(off.code, 0);
+  assert.equal(off.stdout, '');
+  assert.equal(run('git add .env').stdout, '');
+});
+
 test('pre-edit: protected file denied, profile can unprotect', () => {
   const repo = gitRepo();
   const env = runHookScript('pre-edit', { cwd: repo, tool_name: 'Edit', tool_input: { file_path: join(repo, '.env') } }, { projectDir: repo });

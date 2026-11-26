@@ -33,7 +33,8 @@ try {
   initLang(root, input);
   const { profile } = loadProfile(root);
   const check = input.tool_name === 'PowerShell' ? checkPowerShell : checkBash;
-  verdict = check(command, { cwd: input.cwd || root, root, protectedBranches: profile.git.protected_branches });
+  // secrets: git commit is scanned (short git calls); an exception from the scan ends in the catch below
+  verdict = check(command, { cwd: input.cwd || root, root, protectedBranches: profile.git.protected_branches, secrets: profile.secrets });
 } catch (err) {
   try {
     (await import('../lib/util.mjs')).logError(root, 'pre-bash', err);

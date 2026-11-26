@@ -54,6 +54,8 @@ The project profile is `.forge/profile.json`. [`forge init`](#stack-detection) w
 | `protected_files` | string[] | `[]` | **Appended** to the [built-in list](guards.md#file-guard); `!pattern` removes protection. Matching is case-insensitive (`.ENV` and `KEY.PEM` are protected too) |
 | `risky_paths` | string[] | `[]` | Hooks don't apply it. Read by [`forge:plan`](skills.md#forgeplan): work here is tier 3 and the `senior` role |
 | `tdd` | `off` \| `encouraged` \| `required` | `encouraged` | Used by [skills](skills.md): with `required`, `forge:plan` puts test tasks before implementation, and `forge:execute` passes the setting to the implementer. Hooks don't apply it |
+| `secrets.check` | boolean | `true` | `false` turns off the [secret check in a commit](guards.md#secrets-in-a-commit) and the `git add .env` question; without a profile the check is on |
+| `secrets.ignore` | string[] | `[]` | Patterns of files the secret check skips (name and content), relative to the project root; [syntax](guards.md#pattern-syntax) as for `protected_files`, case-insensitive |
 | `docs.remind` | boolean | `true` | `false` turns off the [reminder about agent files](agent-docs.md#agent-docs-reminder) at the end of a turn; [`forge docs`](agent-docs.md#the-forge-docs-command) always works |
 | `docs.max_lines` | integer > 0 | `200` | An agent file longer than this gets the [`too-long`](agent-docs.md#issue-codes) warning |
 | `docs.watch` | string[] | built-in list | **Appended** to the built-in list (see [What counts as a change](agent-docs.md#what-counts-as-a-change)); [syntax](guards.md#pattern-syntax) as for `protected_files`, `!pattern` removes an entry, a built-in one included (`"!Makefile"`) |

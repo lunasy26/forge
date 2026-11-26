@@ -106,6 +106,15 @@
         "ignore": { "type": "array", "items": { "type": "string" }, "description": "Добавляются к встроенным (test/**, tests/**, **/__tests__/**, **/*.test.*, **/*.spec.*, docs/**, *.md, **/*.md, .forge/**). Правки в таких файлах записи в журнале не требуют. Синтаксис как в .gitignore; !pattern снимает." }
       }
     },
+    "secrets": {
+      "type": "object",
+      "description": "Проверка секретов в коммите: перед git commit охрана Bash спрашивает подтверждение, если в коммит попадают известные токены или файлы .env.",
+      "additionalProperties": false,
+      "properties": {
+        "check": { "type": "boolean", "default": true, "description": "Проверять коммит на секреты. false выключает проверку. По умолчанию true." },
+        "ignore": { "type": "array", "items": { "type": "string" }, "description": "Пути, у которых не проверяются ни имя, ни содержимое. Синтаксис как в .gitignore; !pattern снимает. По умолчанию пусто." }
+      }
+    },
     "tdd": { "enum": ["off", "encouraged", "required"], "description": "Отношение к TDD. Хуки его не применяют; при required forge:plan ставит тестовые задачи перед реализацией, forge:execute передаёт значение ролям." },
     "mode": { "enum": ["eco", "normal", "max"], "description": "Режим по умолчанию; forge mode переопределяет его в состоянии." },
     "language": { "enum": ["auto", "en", "ru"], "default": "auto", "description": "Язык сообщений forge. auto — по языку, на котором пользователь пишет в сессии (откат: английский); en или ru — всегда этот язык. Переменная окружения FORGE_LANG важнее." },

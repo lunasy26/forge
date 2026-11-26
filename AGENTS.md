@@ -10,7 +10,8 @@ forge — плагин Claude Code на Node ≥ 20 (ESM, `.mjs`, ни одно�
 |---|---|
 | `.claude-plugin/` | `plugin.json` (версия плагина), `marketplace.json` (маркетплейс `forge-dev`) |
 | `hooks/hooks.json` | события, матчеры, таймауты; `hooks/*.mjs` — по скрипту на событие; обычные хуки идут через `runHook` из `lib/util.mjs`, охранные `pre-bash` и `pre-edit` — без него (см. «Fail-open») |
-| `lib/guards.mjs`, `lib/shell.mjs`, `lib/pwsh.mjs`, `lib/glob.mjs` | охрана Bash, PowerShell и файлов (`checkBash`, `checkPowerShell`, общий `checkWords`), разбиение команд Bash и PowerShell, glob-шаблоны |
+| `lib/guards.mjs`, `lib/shell.mjs`, `lib/pwsh.mjs`, `lib/glob.mjs` | охрана Bash, PowerShell и файлов (`checkBash`, `checkPowerShell`, общий `checkWords`; проверка секретов перед `git commit` и вопрос про `git add .env`), разбиение команд Bash и PowerShell, glob-шаблоны |
+| `lib/secrets.mjs` | поиск секретов в коммите: шаблоны (AWS, GitHub, Anthropic, OpenAI, Slack, закрытый ключ, `.env`), `scanPatch`/`scanText`/`isSecretFile`, `pendingFindings` (то, что заберёт коммит: вызовы git, пределы по размеру и числу файлов, таймаут). Охрана зовёт его как `ctx.scanSecrets \|\| pendingFindings`; поле профиля `secrets` (`check`, `ignore`) |
 | `lib/profile.mjs` + `config/profile.schema.json` | профиль: значения по умолчанию, валидация, схема для редактора — держи их в согласии |
 | `lib/state.mjs`, `lib/edits.mjs` | `.forge/state.json` и журнал правок `.forge/edits.jsonl` с курсорами |
 | `lib/verify.mjs`, `lib/sh.mjs`, `lib/cli.mjs` | запуск команд проверки (оболочка — `/bin/sh` или Git Bash на Windows, `lib/sh.mjs`); команды CLI и `verifyAndRecord` (общая с Stop-хуком) |
@@ -63,6 +64,7 @@ claude --plugin-dir .                                     # живая пров�
 ## Тесты
 
 - `npm test` идёт с `FORGE_LANG=ru`: тесты сообщений проверяют русский текст, английский — в `test/*-en.test.mjs`, где язык задаётся явно. Новое пользовательское сообщение — ключ в обоих языках каталога модуля (`defineCatalog`); без перевода падает тест паритета в `test/i18n.test.mjs`.
+- Токены в тестовых фикстурах собираются во время выполнения (конкатенацией префикса и тела): полный литерал токена в исходниках сработает на охране при коммите самого forge.
 - Логика `lib/` — юнит-тесты. Хуки — сквозные: `runHookScript(name, input, { projectDir })` подаёт JSON на stdin и проверяет код выхода, stdout и разобранный JSON. CLI — `runCli(args, { cwd })`.
 - Фикстуры — `gitRepo(branch)` (подпись коммитов и глобальные git-хуки выключены), `writeProfile`, `write`, изолированный `CLAUDE_CONFIG_DIR`. Тест не должен читать `~/.claude` разработчика, подписывать коммиты или запускать его git-хуки.
 - Любое изменение правила охраны — тесты в `test/guards.test.mjs` и на запрещённое написание, и на похожее разрешённое: ложное срабатывание — тоже баг. Изменения разбора команд — ещё и в `test/glob-shell.test.mjs`.
