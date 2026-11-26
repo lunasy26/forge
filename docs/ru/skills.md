@@ -23,7 +23,7 @@
 - **Кто вызывает:** только пользователь.
 - **Артефакты и состояние:** `.forge/profile.json`, `.forge/profile.schema.json`, `.git/info/exclude`.
 
-[Определяет стек](profile.md#автоопределение-стека), согласует и пишет профиль, запускает `forge doctor`, затем `forge docs`: при `missing-root` предлагает `/forge:docs`, при `missing-shim` — `forge docs --fix`. Если `forge init` предложил [раздел `release`](releases.md#как-включить), говорит, почему, и предлагает создать отсутствующий `CHANGELOG.md`.
+[Определяет стек](profile.md#автоопределение-стека), согласует и пишет профиль, запускает `forge doctor`, затем `forge docs`: при `missing-root` предлагает `/forge:docs`, при `missing-shim` — `forge docs --fix`. Если `forge init` предложил [раздел `release`](releases.md#как-включить), говорит, почему, и предлагает создать отсутствующий `CHANGELOG.md`. Задаёт один вопрос: где хранить спеки и планы — локально в `.forge/work/` (по умолчанию) или в репозитории (`docs/specs/`, `docs/plans/`, коммитятся вместе с кодом); если эти каталоги уже есть, `forge init` сам предлагает репозиторий. Ответ превращается в `forge init --work local|docs`.
 
 ## `/forge:mode`
 
@@ -35,7 +35,7 @@
 ## `/forge:plan`
 
 - **Кто вызывает:** модель (фича или правка на несколько файлов) или пользователь.
-- **Артефакты и состояние:** `.forge/work/<slug>/spec.md`, `plan.md`; `task.slug`, `stage: plan`, `tier` 2 (3 — если задеты [`risky_paths`](profile.md#поля-профиля)), `artifacts.spec`, `artifacts.plan`.
+- **Артефакты и состояние:** спека и план по путям поля [`work`](profile.md#поля-профиля) профиля (по умолчанию `.forge/work/<slug>/spec.md` и `plan.md`, не в git), которые скилл узнаёт у `forge work <slug>`; `task.slug`, `stage: plan`, `tier` 2 (3 — если задеты [`risky_paths`](profile.md#поля-профиля)), `artifacts.spec`, `artifacts.plan`.
 
 Контекст через `scout`, до трёх вопросов, спека до ~40 строк, план задач с [ролями](routing.md#роли), проверками и группами для параллельного запуска ([формат](#формат-задачи-в-плане)); ждёт «да».
 

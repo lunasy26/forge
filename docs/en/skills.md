@@ -23,7 +23,7 @@ Skills are Claude Code [skills](https://code.claude.com/docs/en/skills) shipped 
 - **Invoked by:** the user only.
 - **Artifacts and state:** `.forge/profile.json`, `.forge/profile.schema.json`, `.git/info/exclude`.
 
-[Detects the stack](profile.md#stack-detection), agrees on and writes the profile, runs `forge doctor`, then `forge docs`: on `missing-root` offers `/forge:docs`, on `missing-shim` — `forge docs --fix`. If `forge init` proposed a [`release` section](releases.md#turning-it-on), says why and offers to create a missing `CHANGELOG.md`.
+[Detects the stack](profile.md#stack-detection), agrees on and writes the profile, runs `forge doctor`, then `forge docs`: on `missing-root` offers `/forge:docs`, on `missing-shim` — `forge docs --fix`. If `forge init` proposed a [`release` section](releases.md#turning-it-on), says why and offers to create a missing `CHANGELOG.md`. Asks one question: where specs and plans live — locally in `.forge/work/` (the default) or in the repository (`docs/specs/`, `docs/plans/`, committed with the code); `forge init` already proposes the repository layout when those directories exist. The answer becomes `forge init --work local|docs`.
 
 ## `/forge:mode`
 
@@ -35,7 +35,7 @@ Shows or switches the [mode and its table](routing.md#models-by-mode).
 ## `/forge:plan`
 
 - **Invoked by:** the model (a feature or a change across several files) or the user.
-- **Artifacts and state:** `.forge/work/<slug>/spec.md`, `plan.md`; `task.slug`, `stage: plan`, `tier` 2 (3 if [`risky_paths`](profile.md#profile-fields) are touched), `artifacts.spec`, `artifacts.plan`.
+- **Artifacts and state:** the spec and the plan at the paths of the profile's [`work`](profile.md#profile-fields) (by default `.forge/work/<slug>/spec.md` and `plan.md`, out of git), which the skill gets from `forge work <slug>`; `task.slug`, `stage: plan`, `tier` 2 (3 if [`risky_paths`](profile.md#profile-fields) are touched), `artifacts.spec`, `artifacts.plan`.
 
 Context through `scout`, up to three questions, a spec of up to ~40 lines, a task plan with [roles](routing.md#roles), checks and groups for parallel runs ([format](#plan-task-format)); waits for a yes.
 
