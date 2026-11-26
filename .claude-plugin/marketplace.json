@@ -6,7 +6,7 @@
     {
       "name": "forge",
       "source": "./",
-      "description": "Guards, auto-verification, per-project profile and model routing for role subagents."
+      "description": "Process discipline enforced by hooks: git, secret and file guards, verification before a turn ends, model routing for role subagents, plan → execute → review → finish."
     }
   ]
 }
