@@ -29,7 +29,7 @@ The project profile is `.forge/profile.json`. [`forge init`](#stack-detection) w
     "test_fast": { "run": "npx vitest related --run {files}", "ext": [".ts", ".tsx"] }
   },
   "verify": { "steps": ["typecheck", "lint", "test"], "on_stop": "fast", "timeout_sec": 300 },
-  "git": { "protected_branches": ["main", "master", "release/*"] },
+  "git": { "protected_branches": ["main", "master", "release/*"], "flow": "pr" },
   "protected_files": ["secrets/**", "!config/dev.key"],
   "risky_paths": ["**/migrations/**", ".github/workflows/**"],
   "work": { "spec": "docs/specs/{slug}.md", "plan": "docs/plans/{slug}.md" },
@@ -52,6 +52,7 @@ The project profile is `.forge/profile.json`. [`forge init`](#stack-detection) w
 | `verify.on_stop` | `off` \| `fast` \| `full` | `fast` | `off` — Stop doesn't verify; `fast` — `test_fast` instead of `test`; `full` — steps as they are |
 | `verify.timeout_sec` | integer 1–540 | `300` | Total budget of one check across all steps |
 | `git.protected_branches` | string[] | `["main", "master"]` | [Branches](guards.md#protected-branches) you can't push to. **Replaces** the built-in list rather than extending it; `[]` removes branch protection |
+| `git.flow` | `"merge"` \| `"pr"` \| `null` | `null` | How to [finish a branch](skills.md#forgefinish): `merge` — a local merge into the base branch and deleting the branch, `pr` — pushing the branch and a pull request with `gh`; `null` — `/forge:finish` asks and offers to save the answer here |
 | `protected_files` | string[] | `[]` | **Appended** to the [built-in list](guards.md#file-guard); `!pattern` removes protection. Matching is case-insensitive (`.ENV` and `KEY.PEM` are protected too) |
 | `risky_paths` | string[] | `[]` | Hooks don't apply it. Read by [`forge:plan`](skills.md#forgeplan): work here is tier 3 and the `senior` role |
 | `work.spec` | string | `.forge/work/{slug}/spec.md` | Path template of the spec that [`forge:plan`](skills.md#forgeplan) writes, from the project root. `{slug}` is required, `{date}` (local date, `YYYY-MM-DD`) is optional; other `{…}` placeholders, whitespace, single quotes, absolute paths (a leading `/` or `\`, a drive letter) and `..` segments are rejected. Paths are written with `/`: backslashes in a template are converted. An invalid value is reported as an error and replaced by the default. Hooks don't apply it; [`forge work <slug>`](cli.md#commands) prints the resolved paths |
@@ -84,7 +85,7 @@ forge finds the main checkout from the `.git` and `commondir` files without star
 
 ## Stack detection
 
-`forge init` picks the first stack found in the order below; the others go to the notes. `verify.steps` are those of `typecheck`, `lint`, `test` that were found. Branches are `main`, `master` and `origin`'s default branch; `risky_paths` are `**/migrations/**`, `.github/workflows/**`. Separately from the stack, `forge init` proposes a [`release` section](releases.md#turning-it-on) if the project looks like one that cuts releases.
+`forge init` picks the first stack found in the order below; the others go to the notes. `verify.steps` are those of `typecheck`, `lint`, `test` that were found. Branches are `main`, `master` and `origin`'s default branch; `git.flow` is `pr` when `origin` is on GitHub and `merge` when there is no remote (otherwise it is left unset); `risky_paths` are `**/migrations/**`, `.github/workflows/**`. Separately from the stack, `forge init` proposes a [`release` section](releases.md#turning-it-on) if the project looks like one that cuts releases.
 
 `init` always writes the `work` field. If `docs/specs/` or `docs/plans/` exists as a directory, it proposes the in-repo paths `docs/specs/{slug}.md` and `docs/plans/{slug}.md` (with a note); otherwise the defaults under `.forge/work/`. `forge init --work local|docs` chooses explicitly: `local` is the defaults, `docs` is the in-repo paths; any other value is exit code 2.
 

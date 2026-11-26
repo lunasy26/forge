@@ -58,7 +58,7 @@ Where to pick up: next task T3 "Write the tests" (1/3 done); continue with forge
 ```
 
 - **Next task** — from the plan at `artifacts.plan` (only from there, a path relative to the project root): the first `- [ ] T<n> <title>` line whose `depends:` tasks are all checked `[x]`, otherwise the first unchecked one; titles longer than 60 characters are shortened. If every task is checked — `all 3 plan tasks are checked`. Code blocks in the plan are skipped.
-- **Skill for the stage** (`stage`): `spec` — `forge:plan`; `plan` — show the plan to the user and, after their go-ahead, `forge:execute`; `execute` — `forge:execute`; `review` — `forge:review`; `finish` and an empty stage — no hint.
+- **Skill for the stage** (`stage`): `spec` — `forge:plan`; `plan` — show the plan to the user and, after their go-ahead, `forge:execute`; `execute` — `forge:execute`; `review` — `forge:review`; `finish` — `forge:finish`; an empty stage — no hint.
 - The plan is read once, fail-open: no `artifacts.plan`, no file, a directory, a file over 256 KB, a read error or a plan without tasks — the task part is dropped silently, the stage hint stays; with no hint either, there is no line.
 
 ## Format and lint

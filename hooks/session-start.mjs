@@ -14,7 +14,7 @@ import { runHook } from '../lib/util.mjs';
 export const MAX_CONTEXT = 600;
 const MAX_TITLE = 60;
 const RESUME_SOURCES = new Set(['compact', 'resume']);
-const STAGE_HINTS = { spec: 'hintSpec', plan: 'hintPlan', execute: 'hintExecute', review: 'hintReview' };
+const STAGE_HINTS = { spec: 'hintSpec', plan: 'hintPlan', execute: 'hintExecute', review: 'hintReview', finish: 'hintFinish' };
 
 // After compaction (or a resumed session) the model has lost its place: say what comes next.
 function resumeLine(root, state) {

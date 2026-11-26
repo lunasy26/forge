@@ -86,6 +86,9 @@ test('session-start: without a readable plan only the stage hint, without a hint
   assert.match(sessionCtx(dir, 'compact'), /\nГде продолжить: продолжай скиллом forge:execute\./);
 
   withTask(dir, { stage: 'finish' });
+  assert.match(sessionCtx(dir, 'compact'), /\nГде продолжить: продолжай скиллом forge:finish\./);
+
+  withTask(dir, { stage: null });
   assert.doesNotMatch(sessionCtx(dir, 'compact'), /Где продолжить/);
 
   write(dir, '.forge/state.json', { version: 1, stage: 'execute', artifacts: { plan: '.forge/work/resume/plan.md' } });

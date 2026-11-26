@@ -2,7 +2,7 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { join } from 'node:path';
-import { compareSemver, parseSemver, readVersion, readVersions, writeVersion } from '../lib/release.mjs';
+import { compareSemver, parseSemver, readVersion, readVersions, unreleasedGap, writeVersion } from '../lib/release.mjs';
 import * as semver from '../lib/semver.mjs';
 import { headSha, isClean, latestVersionTag, listTags, mergeBase, tagExists } from '../lib/git.mjs';
 import { git, gitRepo, tempDir, write } from './helpers.mjs';
@@ -268,4 +268,17 @@ test('git: headSha and mergeBase', () => {
   assert.notEqual(headSha(dir), base);
   assert.equal(mergeBase(dir, 'main', 'feat'), base);
   assert.equal(mergeBase(dir, 'main', 'nope'), null);
+});
+
+test('unreleasedGap: relevant files with an empty [Unreleased]; null for ignored files, entries, no changelog', () => {
+  const dir = tempDir();
+  const release = { changelog: './CHANGELOG.md', ignore: ['docs/**', '*.md'], remind: false };
+  assert.equal(unreleasedGap(dir, release, ['src/a.js']), null); // no changelog file
+  write(dir, 'CHANGELOG.md', '# Changelog\n\n## [Unreleased]\n\n## [0.1.0] - 2026-01-01\n\n### Added\n- x\n');
+  assert.deepEqual(unreleasedGap(dir, release, ['src/a.js', 'docs/x.md', 'CHANGELOG.md']), { changelog: 'CHANGELOG.md', relevant: ['src/a.js'] });
+  assert.equal(unreleasedGap(dir, release, ['docs/x.md', 'CHANGELOG.md']), null);
+  assert.equal(unreleasedGap(dir, release, []), null);
+  assert.equal(unreleasedGap(dir, null, ['src/a.js']), null);
+  write(dir, 'CHANGELOG.md', '# Changelog\n\n## [Unreleased]\n\n### Fixed\n- y\n');
+  assert.equal(unreleasedGap(dir, release, ['src/a.js']), null);
 });

@@ -29,7 +29,7 @@
     "test_fast": { "run": "npx vitest related --run {files}", "ext": [".ts", ".tsx"] }
   },
   "verify": { "steps": ["typecheck", "lint", "test"], "on_stop": "fast", "timeout_sec": 300 },
-  "git": { "protected_branches": ["main", "master", "release/*"] },
+  "git": { "protected_branches": ["main", "master", "release/*"], "flow": "pr" },
   "protected_files": ["secrets/**", "!config/dev.key"],
   "risky_paths": ["**/migrations/**", ".github/workflows/**"],
   "work": { "spec": "docs/specs/{slug}.md", "plan": "docs/plans/{slug}.md" },
@@ -52,6 +52,7 @@
 | `verify.on_stop` | `off` \| `fast` \| `full` | `fast` | `off` — Stop не проверяет; `fast` — `test_fast` вместо `test`; `full` — шаги как есть |
 | `verify.timeout_sec` | целое 1–540 | `300` | Общий бюджет одной проверки на все шаги |
 | `git.protected_branches` | string[] | `["main", "master"]` | [Ветки](guards.md#защищённые-ветки), куда нельзя пушить. **Заменяет** встроенный список, а не дополняет его; `[]` снимает защиту веток |
+| `git.flow` | `"merge"` \| `"pr"` \| `null` | `null` | Как [завершать ветку](skills.md#forgefinish): `merge` — локальное слияние в базовую ветку и удаление ветки, `pr` — push ветки и pull request через `gh`; `null` — `/forge:finish` спросит и предложит записать ответ сюда |
 | `protected_files` | string[] | `[]` | **Дописывается** к [встроенному списку](guards.md#охрана-файлов); `!шаблон` снимает защиту. Сопоставление без учёта регистра (`.ENV` и `KEY.PEM` тоже защищены) |
 | `risky_paths` | string[] | `[]` | Хуки его не применяют. Читает [`forge:plan`](skills.md#forgeplan): работа здесь — уровень 3 и роль `senior` |
 | `work.spec` | string | `.forge/work/{slug}/spec.md` | Шаблон пути спеки, которую пишет [`forge:plan`](skills.md#forgeplan), от корня проекта. `{slug}` обязателен, `{date}` (локальная дата, `YYYY-MM-DD`) — по желанию; другие `{…}`, пробельные символы, одинарные кавычки, абсолютные пути (начальные `/` или `\`, буква диска) и сегменты `..` отклоняются. Пути пишутся с `/`: обратные косые черты в шаблоне заменяются. Невалидное значение даёт ошибку и заменяется значением по умолчанию. Хуки его не применяют; готовые пути печатает [`forge work <slug>`](cli.md#команды) |
@@ -84,7 +85,7 @@
 
 ## Автоопределение стека
 
-`forge init` выбирает первый найденный стек в порядке ниже, остальные попадают в заметки. `verify.steps` — те из `typecheck`, `lint`, `test`, что нашлись. Ветки — `main`, `master` и ветка по умолчанию у `origin`; `risky_paths` — `**/migrations/**`, `.github/workflows/**`. Отдельно от стека `forge init` предлагает [раздел `release`](releases.md#как-включить), если проект похож на тот, что выпускает версии.
+`forge init` выбирает первый найденный стек в порядке ниже, остальные попадают в заметки. `verify.steps` — те из `typecheck`, `lint`, `test`, что нашлись. Ветки — `main`, `master` и ветка по умолчанию у `origin`; `git.flow` — `pr`, если `origin` на GitHub, `merge`, если remote нет (иначе поле не задаётся); `risky_paths` — `**/migrations/**`, `.github/workflows/**`. Отдельно от стека `forge init` предлагает [раздел `release`](releases.md#как-включить), если проект похож на тот, что выпускает версии.
 
 Поле `work` `init` пишет всегда. Если каталог `docs/specs/` или `docs/plans/` существует, он предлагает пути внутри репозитория `docs/specs/{slug}.md` и `docs/plans/{slug}.md` (с заметкой), иначе — значения по умолчанию в `.forge/work/`. `forge init --work local|docs` выбирает явно: `local` — значения по умолчанию, `docs` — пути в репозитории; любое другое значение — код выхода 2.
 

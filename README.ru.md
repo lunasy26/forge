@@ -228,8 +228,8 @@ forge заменяет Superpowers и конфликтует с ним. Если
 | [Контекст в начале сессии](docs/ru/hooks.md#контекст-в-начале-сессии) | До 600 символов: режим, проверки, активная задача, предупреждения |
 | [Профиль](docs/ru/profile.md) | `.forge/profile.json` со схемой JSON; автоопределение стека для Node/TS, Python, Swift, Go и Rust |
 | [Маршрутизация моделей](docs/ru/routing.md) | Модель и effort для каждой роли из таблицы `eco`/`normal`/`max`, проверенной инвариантами; псевдонимы можно [сопоставить с другими моделями](docs/ru/routing.md#другие-модели); `forge doctor` проверяет настройку моделей |
-| [Скиллы](docs/ru/skills.md) | `/forge:init`, `/forge:mode`, `/forge:plan`, `/forge:execute`, `/forge:review`, `/forge:docs`, `/forge:release` |
-| [CLI forge](docs/ru/cli.md) | `init`, `state`, `mode`, `route`, `verify`, `docs`, `release`, `doctor` |
+| [Скиллы](docs/ru/skills.md) | `/forge:init`, `/forge:mode`, `/forge:plan`, `/forge:execute`, `/forge:review`, `/forge:docs`, `/forge:release`, `/forge:finish` |
+| [CLI forge](docs/ru/cli.md) | `init`, `state`, `mode`, `route`, `verify`, `docs`, `release`, `finish`, `doctor` |
 
 <p align="right"><a href="#readme-top">↑ наверх</a></p>
 
@@ -279,7 +279,7 @@ flowchart TD
 **Документы проекта**
 
 - [CHANGELOG.md](CHANGELOG.md) — история изменений.
-- [docs/spec.md](docs/spec.md) — спецификация и обоснование решений. Начиналась как черновик v0.1; раздел об этапах перечисляет и то, что ещё не сделано: уровни задач и `risky_paths` в хуках, `SubagentStart`, агенты `mechanic` и `architect`, скиллы `debug` и `finish`.
+- [docs/spec.md](docs/spec.md) — спецификация и обоснование решений. Начиналась как черновик v0.1; раздел об этапах перечисляет и то, что ещё не сделано: уровни задач и `risky_paths` в хуках, `SubagentStart`, агенты `mechanic` и `architect`, скилл `debug`.
 - [AGENTS.md](AGENTS.md) — правила разработки forge для людей и агентов.
 
 <details>
