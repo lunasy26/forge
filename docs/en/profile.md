@@ -32,6 +32,7 @@ The project profile is `.forge/profile.json`. [`forge init`](#stack-detection) w
   "git": { "protected_branches": ["main", "master", "release/*"] },
   "protected_files": ["secrets/**", "!config/dev.key"],
   "risky_paths": ["**/migrations/**", ".github/workflows/**"],
+  "work": { "spec": "docs/specs/{slug}.md", "plan": "docs/plans/{slug}.md" },
   "docs": { "remind": true, "max_lines": 200 },
   "release": { "tag_prefix": "v", "version_files": ["package.json"] },
   "tdd": "encouraged",
@@ -53,6 +54,8 @@ The project profile is `.forge/profile.json`. [`forge init`](#stack-detection) w
 | `git.protected_branches` | string[] | `["main", "master"]` | [Branches](guards.md#protected-branches) you can't push to. **Replaces** the built-in list rather than extending it; `[]` removes branch protection |
 | `protected_files` | string[] | `[]` | **Appended** to the [built-in list](guards.md#file-guard); `!pattern` removes protection. Matching is case-insensitive (`.ENV` and `KEY.PEM` are protected too) |
 | `risky_paths` | string[] | `[]` | Hooks don't apply it. Read by [`forge:plan`](skills.md#forgeplan): work here is tier 3 and the `senior` role |
+| `work.spec` | string | `.forge/work/{slug}/spec.md` | Path template of the spec that [`forge:plan`](skills.md#forgeplan) writes, from the project root. `{slug}` is required, `{date}` (local date, `YYYY-MM-DD`) is optional; other `{…}` placeholders, absolute paths (a leading `/` or `\`, a drive letter) and `..` segments are rejected. An invalid value is reported as an error and replaced by the default. Hooks don't apply it; [`forge work <slug>`](cli.md#commands) prints the resolved paths |
+| `work.plan` | string | `.forge/work/{slug}/plan.md` | The same for the plan; must differ from `work.spec` (if they are equal, both fall back to the defaults). By default both files are local: out of git, and each worktree has its own. With paths inside the repository (`docs/specs/{slug}.md`, `docs/plans/{slug}.md`) they are committed with the change and come with the branch; forge never deletes them. `review.md` and the `forge docs` backups stay in `.forge/work/` either way |
 | `tdd` | `off` \| `encouraged` \| `required` | `encouraged` | Used by [skills](skills.md): with `required`, `forge:plan` puts test tasks before implementation, and `forge:execute` passes the setting to the implementer. Hooks don't apply it |
 | `docs.remind` | boolean | `true` | `false` turns off the [reminder about agent files](agent-docs.md#agent-docs-reminder) at the end of a turn; [`forge docs`](agent-docs.md#the-forge-docs-command) always works |
 | `docs.max_lines` | integer > 0 | `200` | An agent file longer than this gets the [`too-long`](agent-docs.md#issue-codes) warning |
@@ -80,6 +83,8 @@ forge finds the main checkout from the `.git` and `commondir` files without star
 ## Stack detection
 
 `forge init` picks the first stack found in the order below; the others go to the notes. `verify.steps` are those of `typecheck`, `lint`, `test` that were found. Branches are `main`, `master` and `origin`'s default branch; `risky_paths` are `**/migrations/**`, `.github/workflows/**`. Separately from the stack, `forge init` proposes a [`release` section](releases.md#turning-it-on) if the project looks like one that cuts releases.
+
+`init` always writes the `work` field. If `docs/specs/` or `docs/plans/` exists as a directory, it proposes the in-repo paths `docs/specs/{slug}.md` and `docs/plans/{slug}.md` (with a note); otherwise the defaults under `.forge/work/`. `forge init --work local|docs` chooses explicitly: `local` is the defaults, `docs` is the in-repo paths; any other value is exit code 2.
 
 | Stack | Signals | Commands |
 |---|---|---|
