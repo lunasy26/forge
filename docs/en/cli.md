@@ -35,6 +35,8 @@ If `forge verify` cannot run the steps for lack of Git Bash, that is not a failu
 
 An unknown command (or `state` subcommand) gives exit code 2, an internal CLI error gives 3. Errors are printed to stderr as `forge: …`.
 
+If the reader closes the pipe early (`forge doctor | head -3`), forge stops writing quietly, without a stack trace, and exits with the command's own code: every command runs to the end before the closed pipe is noticed.
+
 ## `forge finish`
 
 Gathers everything needed before integrating a finished branch and prints the exact commands; the command itself **never merges, pushes, deletes or fetches** — [`/forge:finish`](skills.md#forgefinish) runs the commands through Bash, so the [guard hooks](guards.md) see each of them and you approve each.
