@@ -1,6 +1,6 @@
 {
   "name": "forge-claude-plugin",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "private": true,
   "type": "module",
   "description": "forge — a Claude Code plugin: process discipline enforced by hooks — git, secret and file guards, verification before a turn ends, model routing for role subagents, plan → execute → review → finish",

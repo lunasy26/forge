@@ -1,6 +1,6 @@
 {
   "name": "forge",
-  "version": "0.7.0",
+  "version": "0.7.1",
   "description": "Process discipline for Claude Code, enforced by hooks — not prompts. Guards git, secrets and protected files (Bash & PowerShell), verifies before a turn ends, routes role subagents to the right model and effort, and runs plan → execute → review → finish.",
   "author": { "name": "lunasy26" },
   "homepage": "https://github.com/lunasy26/forge",

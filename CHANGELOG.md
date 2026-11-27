@@ -10,6 +10,8 @@
 
 ## [Unreleased]
 
+## [0.7.1] — 2026-11-27
+
 ### Fixed
 - CLI `forge` больше не падает со стеком `Error: write EPIPE`, когда читатель закрывает вывод раньше времени (`forge doctor | head -3`, `grep -m`, выход из `less`): вывод просто обрывается, а код выхода — тот же, что у команды без конвейера. Другие ошибки записи по-прежнему видны. См. [«CLI»](docs/ru/cli.md).
 
@@ -306,7 +308,8 @@
 - Скиллы `/forge:init`, `/forge:mode`, `/forge:plan`, `/forge:execute`, `/forge:review`; CLI `forge` с командами
   `init`, `state`, `mode`, `route`, `verify`, `doctor`.
 
-[Unreleased]: https://github.com/lunasy26/forge/compare/v0.7.0...HEAD
+[Unreleased]: https://github.com/lunasy26/forge/compare/v0.7.1...HEAD
+[0.7.1]: https://github.com/lunasy26/forge/compare/v0.7.0...v0.7.1
 [0.7.0]: https://github.com/lunasy26/forge/compare/v0.6.0...v0.7.0
 [0.6.0]: https://github.com/lunasy26/forge/compare/v0.5.0...v0.6.0
 [0.5.0]: https://github.com/lunasy26/forge/compare/v0.4.0...v0.5.0
